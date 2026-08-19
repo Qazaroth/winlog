@@ -20,7 +20,7 @@ Focus on building a fast, low-level wrapper around the native Windows Event Log 
 
 - [ ] **Windows API Bindings:**
   - [x] Implement wrapper around `EvtQuery` and `EvtNext` using `windows-rs`.
-  - [ ] Support reading active live channels (`System`, `Security`, `Application`).
+  - [x] Support reading active live channels (`System`, `Security`, `Application`).
   - [ ] Support parsing offline static `.evtx` files.
 - [ ] **Data Model & Schema:**
   - [ ] Define structured `EventRecord` struct (Timestamp, Provider, Event ID, Level, Computer Name, Payload parameters).
