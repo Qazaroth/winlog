@@ -19,7 +19,7 @@ Since `winlog` is designed to be an accessible, high-performance open-source pro
 Focus on building a fast, low-level wrapper around the native Windows Event Log API (`winevt.dll`).
 
 - [ ] **Windows API Bindings:**
-  - [ ] Implement wrapper around `EvtQuery` and `EvtNext` using `windows-rs`.
+  - [x] Implement wrapper around `EvtQuery` and `EvtNext` using `windows-rs`.
   - [ ] Support reading active live channels (`System`, `Security`, `Application`).
   - [ ] Support parsing offline static `.evtx` files.
 - [ ] **Data Model & Schema:**
