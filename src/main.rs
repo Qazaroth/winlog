@@ -1,4 +1,5 @@
 use anyhow::{Result, anyhow};
+use chrono::{DateTime, Utc};
 use std::path::Path;
 use std::ptr;
 use windows::Win32::System::EventLog::{
@@ -6,6 +7,61 @@ use windows::Win32::System::EventLog::{
     EvtQueryReverseDirection,
 };
 use windows::core::PCWSTR;
+
+/// Log severity levels mapped from Windows Event Log Level IDs
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EventLevel {
+    Critical,    // Level 1
+    Error,       // Level 2
+    Warning,     // Level 3
+    Information, // Level 4
+    Verbose,     // Level 5
+    Unknown(u8),
+}
+
+impl From<u8> for EventLevel {
+    fn from(level: u8) -> Self {
+        match level {
+            1 => EventLevel::Critical,
+            2 => EventLevel::Error,
+            3 => EventLevel::Warning,
+            4 => EventLevel::Information,
+            5 => EventLevel::Verbose,
+            other => EventLevel::Unknown(other),
+        }
+    }
+}
+
+/// Represents a fully parsed, strongly-typed Windows Event Record
+#[derive(Debug, Clone)]
+pub struct EventRecord {
+    pub event_id: u32,
+    pub provider: String,
+    pub channel: String,
+    pub level: EventLevel,
+    pub timestamp: Option<DateTime<Utc>>,
+    pub computer: String,
+    pub process_id: Option<u32>,
+    pub thread_id: Option<u32>,
+    /// Key-value event payload data or event parameters
+    pub payload: Vec<(String, String)>,
+    /// Raw XML payload retained for detailed view / debugging
+    pub raw_xml: String,
+}
+
+impl EventRecord {
+    /// Helper to format the level as a clean uppercase string for display/filtering
+    pub fn level_str(&self) -> &str {
+        match self.level {
+            EventLevel::Critical => "CRITICAL",
+            EventLevel::Error => "ERROR",
+            EventLevel::Warning => "WARNING",
+            EventLevel::Information => "INFO",
+            EventLevel::Verbose => "VERBOSE",
+            EventLevel::Unknown(_) => "UNKNOWN",
+        }
+    }
+}
 
 /// Common live Windows Event Log channels
 pub const LIVE_CHANNELS: &[&str] = &["System", "Security", "Application", "Setup"];

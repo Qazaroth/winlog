@@ -1,9 +1,11 @@
 [package]
 name = "winlog"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
+chrono = "0.4"
+roxmltree = "0.20"
 anyhow = "1.0.104"
 clap = {version = "4.6.6", features = ["derive"]}
 windows = {version = "0.62.2", features = ["Win32_Foundation", "Win32_System_EventLog"] }

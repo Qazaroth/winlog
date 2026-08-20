@@ -23,7 +23,7 @@ Focus on building a fast, low-level wrapper around the native Windows Event Log 
   - [x] Support reading active live channels (`System`, `Security`, `Application`).
   - [x] Support parsing offline static `.evtx` files.
 - [ ] **Data Model & Schema:**
-  - [ ] Define structured `EventRecord` struct (Timestamp, Provider, Event ID, Level, Computer Name, Payload parameters).
+  - [x] Define structured `EventRecord` struct (Timestamp, Provider, Event ID, Level, Computer Name, Payload parameters).
   - [ ] Implement robust XML-to-struct parser for event payloads.
 - [ ] **Basic CLI Interface:**
   - [ ] Implement arguments via `clap` (channel selection, limit, output format).
