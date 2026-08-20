@@ -1,5 +1,11 @@
 ## [unreleased]
 
+### 🚀 Features
+
+- Basic CLI interface implemented
+([`633c964…`](https://github.com/Qazaroth/feckmania/commit/633c964a156073d6993c05f76f580e7b0410df2f))
+
+
 ### ⚙️ Continuous Integration
 
 - Release workflow added
