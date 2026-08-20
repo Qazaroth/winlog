@@ -1,13 +1,38 @@
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
+use clap::{Parser, ValueEnum};
+use colored::*;
 use std::path::Path;
 use std::ptr;
 use windows::Win32::System::EventLog::{
     EVT_HANDLE, EvtClose, EvtNext, EvtQuery, EvtQueryChannelPath, EvtQueryFilePath,
-    EvtQueryReverseDirection,
+    EvtQueryReverseDirection, EvtRender, EvtRenderEventXml,
 };
-use windows::Win32::System::EventLog::{EVT_RENDER_FLAGS, EvtRender, EvtRenderEventXml};
 use windows::core::PCWSTR;
+
+/// Supported output formats for CLI display
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
+pub enum OutputFormat {
+    Text,
+    Xml,
+}
+
+/// A fast, modern CLI and TUI alternative to Windows Event Viewer.
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+pub struct Cli {
+    /// Live channel name (e.g., System, Security, Application) or path to an .evtx file
+    #[arg(short, long, default_value = "System")]
+    pub channel: String,
+
+    /// Maximum number of events to fetch
+    #[arg(short, long, default_value_t = 5)]
+    pub limit: u32,
+
+    /// Output format (text, xml)
+    #[arg(short, long, value_enum, default_value_t = OutputFormat::Text)]
+    pub format: OutputFormat,
+}
 
 /// Log severity levels mapped from Windows Event Log Level IDs
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,13 +69,46 @@ pub struct EventRecord {
     pub computer: String,
     pub process_id: Option<u32>,
     pub thread_id: Option<u32>,
-    /// Key-value event payload data or event parameters
     pub payload: Vec<(String, String)>,
-    /// Raw XML payload retained for detailed view / debugging
     pub raw_xml: String,
 }
 
 impl EventRecord {
+    /// Returns a colorized string representation of the severity level
+    pub fn colored_level_str(&self) -> ColoredString {
+        match self.level {
+            EventLevel::Critical => "CRITICAL".red().bold().reversed(),
+            EventLevel::Error => "ERROR".red().bold(),
+            EventLevel::Warning => "WARN".yellow().bold(),
+            EventLevel::Information => "INFO".green().bold(),
+            EventLevel::Verbose => "VERBOSE".blue(),
+            EventLevel::Unknown(_) => "UNKNOWN".normal(),
+        }
+    }
+
+    /// Formats record into a clean, colored single-line terminal log
+    pub fn print_formatted(&self) {
+        let time_str = self
+            .timestamp
+            .map(|ts| ts.format("%Y-%m-%d %H:%M:%S").to_string())
+            .unwrap_or_else(|| "N/A".to_string());
+
+        println!(
+            "[{}] [{}] [{}] ID:{}: {}",
+            time_str.dimmed(),
+            self.colored_level_str(),
+            self.provider.cyan(),
+            self.event_id.to_string().bold(),
+            self.channel.dimmed()
+        );
+
+        for (k, v) in &self.payload {
+            if !v.trim().is_empty() {
+                println!("    {} {}: {}", "↳".dimmed(), k.bold(), v)
+            }
+        }
+    }
+
     /// Parses a raw XML string into a strongly-typed "EventRecord"
     pub fn from_xml(xml_str: &str) -> Result<Self> {
         let doc = roxmltree::Document::parse(xml_str)
@@ -171,6 +229,15 @@ pub struct EventLogQuery {
 }
 
 impl EventLogQuery {
+    pub fn open_path_or_channel(input: &str) -> Result<Self> {
+        let path = Path::new(input);
+        if path.exists() && path.extension().and_then(|s| s.to_str()) == Some("evtx") {
+            Self::open_evtx_file(path)
+        } else {
+            Self::open_live_channel(input)
+        }
+    }
+
     /// Opens a query handle for an active live Windows channel (e.g., "System", "Security", "Application").
     pub fn open_live_channel(channel_name: &str) -> Result<Self> {
         // Convert Rust string slice (&str) into a null-terminated UTF-16 vector for Windows APIs
@@ -329,23 +396,22 @@ impl Drop for EventHandle {
 }
 
 fn main() -> Result<()> {
-    println!("Testing XML rendering & parsing...\n");
+    let cli = Cli::parse();
 
-    let query = EventLogQuery::open_live_channel("System")?;
-    let raw_events = query.next_events(3)?;
+    let query = EventLogQuery::open_path_or_channel(&cli.channel)?;
+    let raw_events = query.next_events(cli.limit)?;
 
-    for (idx, handle) in raw_events.iter().enumerate() {
+    for handle in raw_events {
         let xml = handle.to_xml()?;
-        let record = EventRecord::from_xml(&xml)?;
 
-        println!("--- Event #{} ---", idx + 1);
-        println!("ID:        {}", record.event_id);
-        println!("Provider:  {}", record.provider);
-        println!("Level:     {}", record.level_str());
-        println!("Time:      {:?}", record.timestamp);
-        println!("Computer:  {}", record.computer);
-        println!("Payloads:  {} parameter(s)", record.payload.len());
-        println!();
+        match cli.format {
+            OutputFormat::Xml => println!("{}\n---", xml),
+            OutputFormat::Text => {
+                if let Ok(record) = EventRecord::from_xml(&xml) {
+                    record.print_formatted();
+                }
+            }
+        }
     }
 
     Ok(())

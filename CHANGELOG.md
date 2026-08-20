@@ -1,3 +1,10 @@
+## [unreleased]
+
+### ⚙️ Continuous Integration
+
+- Release workflow added
+([`5a8ac5d…`](https://github.com/Qazaroth/feckmania/commit/5a8ac5d509ab6c9171cca0300bd7df34ef87edef))
+
 ## [0.2.0] - 2026-08-20
 
 ### 🚀 Features

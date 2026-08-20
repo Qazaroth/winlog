@@ -9,3 +9,4 @@ roxmltree = "0.20"
 anyhow = "1.0.104"
 clap = {version = "4.6.6", features = ["derive"]}
 windows = {version = "0.62.2", features = ["Win32_Foundation", "Win32_System_EventLog"] }
+colored = "3.1.1"

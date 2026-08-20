@@ -25,9 +25,9 @@ Focus on building a fast, low-level wrapper around the native Windows Event Log 
 - [x] **Data Model & Schema:**
   - [x] Define structured `EventRecord` struct (Timestamp, Provider, Event ID, Level, Computer Name, Payload parameters).
   - [x] Implement robust XML-to-struct parser for event payloads.
-- [ ] **Basic CLI Interface:**
-  - [ ] Implement arguments via `clap` (channel selection, limit, output format).
-  - [ ] Output formatted terminal logs with basic color coding based on severity level (Error, Warning, Information).
+- [x] **Basic CLI Interface:**
+  - [x] Implement arguments via `clap` (channel selection, limit, output format).
+  - [x] Output formatted terminal logs with basic color coding based on severity level (Error, Warning, Information).
 
 ---
 
