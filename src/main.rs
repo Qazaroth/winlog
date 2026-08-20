@@ -6,6 +6,7 @@ use windows::Win32::System::EventLog::{
     EVT_HANDLE, EvtClose, EvtNext, EvtQuery, EvtQueryChannelPath, EvtQueryFilePath,
     EvtQueryReverseDirection,
 };
+use windows::Win32::System::EventLog::{EVT_RENDER_FLAGS, EvtRender, EvtRenderEventXml};
 use windows::core::PCWSTR;
 
 /// Log severity levels mapped from Windows Event Log Level IDs
@@ -50,6 +51,103 @@ pub struct EventRecord {
 }
 
 impl EventRecord {
+    /// Parses a raw XML string into a strongly-typed "EventRecord"
+    pub fn from_xml(xml_str: &str) -> Result<Self> {
+        let doc = roxmltree::Document::parse(xml_str)
+            .map_err(|e| anyhow!("Failed to parse XML document: {}", e))?;
+        let root = doc.root_element();
+        let system_node = root
+            .children()
+            .find(|n| n.has_tag_name("System"))
+            .ok_or_else(|| anyhow!("Missing <System> block in Event XML"))?;
+
+        // 1. Event ID
+        let event_id = system_node
+            .children()
+            .find(|n| n.has_tag_name("EventID"))
+            .and_then(|n| n.text())
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+
+        // 2. Provider name
+        let provider = system_node
+            .children()
+            .find(|n| n.has_tag_name("Provider"))
+            .and_then(|n| n.attribute("Name"))
+            .unwrap_or("Unknown")
+            .to_string();
+
+        // 3. Channel
+        let channel = system_node
+            .children()
+            .find(|n| n.has_tag_name("Channel"))
+            .and_then(|n| n.text())
+            .unwrap_or("Unknown")
+            .to_string();
+
+        // 4. Level
+        let level_u8 = system_node
+            .children()
+            .find(|n| n.has_tag_name("Level"))
+            .and_then(|n| n.text())
+            .and_then(|s| s.parse::<u8>().ok())
+            .unwrap_or(4); // default to info (4)
+        let level = EventLevel::from(level_u8);
+
+        // 5. Timestamp (SystemTime attribute in <TimeCreated>)
+        let timestamp = system_node
+            .children()
+            .find(|n| n.has_tag_name("TimeCreated"))
+            .and_then(|n| n.attribute("SystemTime"))
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&Utc));
+
+        // 6. Computer Name
+        let computer = system_node
+            .children()
+            .find(|n| n.has_tag_name("Computer"))
+            .and_then(|n| n.text())
+            .unwrap_or("localhost")
+            .to_string();
+
+        // 7. Execution (ProcessID & ThreadID)
+        let (process_id, thread_id) = system_node
+            .children()
+            .find(|n| n.has_tag_name("Execution"))
+            .map(|n| {
+                let pid = n.attribute("ProcessID").and_then(|s| s.parse::<u32>().ok());
+                let tid = n.attribute("ThreadID").and_then(|s| s.parse::<u32>().ok());
+                (pid, tid)
+            })
+            .unwrap_or((None, None));
+
+        // 8. EventData Payload Parameters
+        let mut payload = Vec::new();
+        if let Some(event_data_node) = root.children().find(|n| n.has_tag_name("EventData")) {
+            for data_node in event_data_node
+                .children()
+                .filter(|n| n.has_tag_name("Data"))
+            {
+                let key = data_node.attribute("Name").unwrap_or("Data").to_string();
+                let val = data_node.text().unwrap_or("").to_string();
+                payload.push((key, val));
+            }
+        }
+
+        Ok(EventRecord {
+            event_id,
+            provider,
+            channel,
+            level,
+            timestamp,
+            computer,
+            process_id,
+            thread_id,
+            payload,
+            raw_xml: xml_str.to_string(),
+        })
+    }
+
     /// Helper to format the level as a clean uppercase string for display/filtering
     pub fn level_str(&self) -> &str {
         match self.level {
@@ -174,6 +272,52 @@ impl Drop for EventLogQuery {
 
 pub struct EventHandle(pub EVT_HANDLE);
 
+impl EventHandle {
+    /// Renders raw event handle into an XML string using EvtRender
+    pub fn to_xml(&self) -> Result<String> {
+        let mut buffer_used: u32 = 0;
+        let mut property_count: u32 = 0;
+
+        // First call: pass 0/null to retrieve the required buffer size
+        unsafe {
+            let _ = EvtRender(
+                None,
+                self.0,
+                EvtRenderEventXml.0,
+                0,
+                None,
+                &mut buffer_used,
+                &mut property_count,
+            );
+        }
+
+        if buffer_used == 0 {
+            return Err(anyhow!("Failed to determine buffer size for EvtRender"));
+        }
+
+        // Allocate a UTF-16 buffer of appropriate size
+        let mut buffer: Vec<u16> = vec![0; (buffer_used / 2) as usize];
+
+        // Second call: Populate buffer with actual XML content
+        unsafe {
+            EvtRender(
+                None,
+                self.0,
+                EvtRenderEventXml.0,
+                buffer_used,
+                Some(buffer.as_mut_ptr() as *mut _),
+                &mut buffer_used,
+                &mut property_count,
+            )?;
+        }
+
+        // Trim null chars and parse UTF-16 slice into Rust String
+        let xml_len = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
+        String::from_utf16(&buffer[..xml_len])
+            .map_err(|e| anyhow!("Failed to convert UTF-16 XML buffer: {}", e))
+    }
+}
+
 impl Drop for EventHandle {
     fn drop(&mut self) {
         if !self.0.is_invalid() {
@@ -185,32 +329,23 @@ impl Drop for EventHandle {
 }
 
 fn main() -> Result<()> {
-    println!("Testing live channels & static .evtx file reader...\n");
+    println!("Testing XML rendering & parsing...\n");
 
-    // 1. Test active channel
-    let live_query = EventLogQuery::open_live_channel("System")?;
-    let live_events = live_query.next_events(5)?;
-    println!(
-        "Live Channel ['{}']: Fetched {} events",
-        live_query.source_name(),
-        live_events.len()
-    );
+    let query = EventLogQuery::open_live_channel("System")?;
+    let raw_events = query.next_events(3)?;
 
-    // 2. Test reading a default system .evtx file directly from disk
-    let system_evtx_path = r"C:\Windows\System32\winevt\Logs\System.evtx";
+    for (idx, handle) in raw_events.iter().enumerate() {
+        let xml = handle.to_xml()?;
+        let record = EventRecord::from_xml(&xml)?;
 
-    match EventLogQuery::open_evtx_file(system_evtx_path) {
-        Ok(file_query) => {
-            let file_events = file_query.next_events(5)?;
-            println!(
-                "Static .evtx File ['{}']: Fetched {} events",
-                file_query.source_name(),
-                file_events.len()
-            );
-        }
-        Err(err) => {
-            println!("Could not read .evtx file: {}", err);
-        }
+        println!("--- Event #{} ---", idx + 1);
+        println!("ID:        {}", record.event_id);
+        println!("Provider:  {}", record.provider);
+        println!("Level:     {}", record.level_str());
+        println!("Time:      {:?}", record.timestamp);
+        println!("Computer:  {}", record.computer);
+        println!("Payloads:  {} parameter(s)", record.payload.len());
+        println!();
     }
 
     Ok(())

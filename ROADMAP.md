@@ -22,9 +22,9 @@ Focus on building a fast, low-level wrapper around the native Windows Event Log 
   - [x] Implement wrapper around `EvtQuery` and `EvtNext` using `windows-rs`.
   - [x] Support reading active live channels (`System`, `Security`, `Application`).
   - [x] Support parsing offline static `.evtx` files.
-- [ ] **Data Model & Schema:**
+- [x] **Data Model & Schema:**
   - [x] Define structured `EventRecord` struct (Timestamp, Provider, Event ID, Level, Computer Name, Payload parameters).
-  - [ ] Implement robust XML-to-struct parser for event payloads.
+  - [x] Implement robust XML-to-struct parser for event payloads.
 - [ ] **Basic CLI Interface:**
   - [ ] Implement arguments via `clap` (channel selection, limit, output format).
   - [ ] Output formatted terminal logs with basic color coding based on severity level (Error, Warning, Information).
