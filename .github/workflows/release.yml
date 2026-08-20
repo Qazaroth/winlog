@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install git-cliff
+        run: cargo install git-cliff
+
+      - name: Generate release notes
+        shell: bash
+        run: |
+            git-cliff -c cliff.toml --latest > RELEASE_NOTES.md
+
+      - name: Show generated release notes
+        run: |
+          echo "===== RELEASE_NOTES.md ====="
+          cat RELEASE_NOTES.md
+          echo "============================"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: RELEASE_NOTES.md
+          overwrite: true
+          files: |
+            LICENSE
+            README.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Clean up
+        if: always()
+        run: rm -f RELEASE_NOTES.md
