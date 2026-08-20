@@ -36,7 +36,7 @@ Focus on building a fast, low-level wrapper around the native Windows Event Log 
 Focus on real-time log monitoring and integration with terminal pipelines.
 
 - [ ] **Live Tail Engine:**
-  - [ ] Implement asynchronous streaming subscriber using `EvtSubscribe`.
+  - [x] Implement asynchronous streaming subscriber using `EvtSubscribe`.
   - [ ] Support live auto-scrolling terminal output (`winlog tail -c System`).
 - [ ] **Structured Exports:**
   - [ ] Add JSON (`--json`) and NDJSON (`--ndjson`) output modes.

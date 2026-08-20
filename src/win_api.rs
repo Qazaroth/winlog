@@ -1,9 +1,12 @@
 use anyhow::{Result, anyhow};
+use crossbeam_channel::{Receiver, Sender, bounded};
+use std::ffi::c_void;
 use std::path::Path;
 use std::ptr;
 use windows::Win32::System::EventLog::{
-    EVT_HANDLE, EvtClose, EvtNext, EvtQuery, EvtQueryChannelPath, EvtQueryFilePath,
-    EvtQueryReverseDirection, EvtRender, EvtRenderEventXml,
+    EVT_HANDLE, EVT_SUBSCRIBE_NOTIFY_ACTION, EvtClose, EvtNext, EvtQuery, EvtQueryChannelPath,
+    EvtQueryFilePath, EvtQueryReverseDirection, EvtRender, EvtRenderEventXml, EvtSubscribe,
+    EvtSubscribeToFutureEvents,
 };
 use windows::core::PCWSTR;
 
@@ -104,6 +107,85 @@ impl EventLogQuery {
 }
 
 impl Drop for EventLogQuery {
+    fn drop(&mut self) {
+        if !self.handle.is_invalid() {
+            unsafe {
+                let _ = EvtClose(self.handle);
+            }
+        }
+    }
+}
+
+/// Managed subscription wrapper around an active Windows `EvtSubscribe` handle.
+pub struct EventLogSubscription {
+    handle: EVT_HANDLE,
+    receiver: Receiver<String>,
+}
+
+impl EventLogSubscription {
+    /// Subscribes to live incoming events on the specified channel.
+    /// Returns a channel receiver that streams raw XML event strings as they occur.
+    pub fn subscribe(channel_name: &str) -> Result<Self> {
+        let wide_channel: Vec<u16> = channel_name
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+
+        // 100-item bounded queue to prevent unbounded memory growth during high event bursts
+        let (sender, receiver) = bounded::<String>(100);
+
+        // Box the sender so we can pass a raw pointer into the C callback context
+        let context_ptr = Box::into_raw(Box::new(sender)) as *mut c_void;
+
+        let handle = unsafe {
+            EvtSubscribe(
+                None,
+                None,
+                PCWSTR(wide_channel.as_ptr()),
+                PCWSTR(ptr::null()),
+                None,
+                Some(context_ptr),
+                Some(raw_subscription_callback),
+                EvtSubscribeToFutureEvents.0,
+            )
+            .map_err(|e| {
+                // Re-claim memory if subscription creation fails
+                let _ = Box::from_raw(context_ptr as *mut Sender<String>);
+                anyhow!(
+                    "Failed to subscribe to channel '{}': {}. (Note: Admin rights required for 'Security')",
+                    channel_name,
+                    e
+                )
+            })?
+        };
+
+        Ok(Self { handle, receiver })
+    }
+
+    /// Access the event stream receiver
+    pub fn receiver(&self) -> &Receiver<String> {
+        &self.receiver
+    }
+}
+
+/// Native C callback passed to `EvtSubscribe`
+unsafe extern "system" fn raw_subscription_callback(
+    action: EVT_SUBSCRIBE_NOTIFY_ACTION,
+    pcontext: *const c_void,
+    hevent: EVT_HANDLE,
+) -> u32 {
+    if action.0 == 1 && !pcontext.is_null() && !hevent.is_invalid() {
+        let sender = unsafe { &*(pcontext as *const Sender<String>) };
+        let handle = EventHandle(hevent);
+
+        if let Ok(xml) = handle.to_xml() {
+            let _ = sender.try_send(xml);
+        }
+    }
+    0
+}
+
+impl Drop for EventLogSubscription {
     fn drop(&mut self) {
         if !self.handle.is_invalid() {
             unsafe {

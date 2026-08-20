@@ -1,9 +1,15 @@
-## [unreleased]
+## [0.3.0] - 2026-08-20
 
 ### 🚀 Features
 
 - Basic CLI interface implemented
 ([`633c964…`](https://github.com/Qazaroth/feckmania/commit/633c964a156073d6993c05f76f580e7b0410df2f))
+
+
+### 🚜 Refactor
+
+- Split main.rs into smaller modular files
+([`f497d4d…`](https://github.com/Qazaroth/feckmania/commit/f497d4d284ec99cf54b4dfdb35137c7536877bdb))
 
 
 ### ⚙️ Continuous Integration

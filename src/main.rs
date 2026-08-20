@@ -1,25 +1,14 @@
 use anyhow::Result;
-use clap::Parser;
-use winlog::cli::{Cli, OutputFormat};
 use winlog::record::EventRecord;
-use winlog::win_api::EventLogQuery;
+use winlog::win_api::EventLogSubscription;
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
+    println!("Subscribing to live System events... Press Ctrl+C to stop.");
+    let sub = EventLogSubscription::subscribe("System")?;
 
-    let query = EventLogQuery::open_path_or_channel(&cli.channel)?;
-    let raw_events = query.next_events(cli.limit)?;
-
-    for handle in raw_events {
-        let xml = handle.to_xml()?;
-
-        match cli.format {
-            OutputFormat::Xml => println!("{}\n---", xml),
-            OutputFormat::Text => {
-                if let Ok(record) = EventRecord::from_xml(&xml) {
-                    record.print_formatted();
-                }
-            }
+    for xml in sub.receiver() {
+        if let Ok(record) = EventRecord::from_xml(&xml) {
+            record.print_formatted();
         }
     }
 
