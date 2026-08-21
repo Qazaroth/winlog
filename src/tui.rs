@@ -28,6 +28,29 @@ use sysinfo::{CpuRefreshKind, Pid, ProcessRefreshKind, RefreshKind, System};
 use crate::record::{EventLevel, EventRecord};
 use crate::win_api::EventLogQuery;
 
+pub fn get_reference_url(event_id: u32, provider: &str) -> String {
+    let provider_lower = provider.to_lowercase();
+
+    if provider_lower.contains("sysmon") {
+        format!(
+            "https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon#event-id-{}",
+            event_id
+        )
+    } else if provider_lower.contains("security") || (4600..=5000).contains(&event_id) {
+        format!(
+            "https://learn.microsoft.com/en-us/windows/security/threat-protection/auditing/event-{}",
+            event_id
+        )
+    } else if provider_lower.contains("powershell") {
+        "https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_logging".to_string()
+    } else {
+        format!(
+            "https://learn.microsoft.com/en-us/search/?terms=Windows+Event+ID+{}",
+            event_id
+        )
+    }
+}
+
 #[derive(PartialEq, Eq)]
 pub enum DetailViewMode {
     Parameters,
@@ -405,6 +428,20 @@ impl App {
         }
     }
 
+    pub fn open_selected_in_browser(&mut self) {
+        if let Some(record) = self.selected_record() {
+            let url = get_reference_url(record.event_id, &record.provider);
+            if webbrowser::open(&url).is_ok() {
+                self.set_status(format!(
+                    "Opened doc reference for Event ID {} in browser!",
+                    record.event_id
+                ));
+            } else {
+                self.set_status("Failed to open web browser.".to_string());
+            }
+        }
+    }
+
     pub fn next(&mut self) {
         if self.visible_count() == 0 {
             return;
@@ -536,6 +573,7 @@ fn main_loop(
                             KeyCode::Char('G') => app.jump_last(),
                             KeyCode::Char('y') => app.copy_summary_to_clipboard(),
                             KeyCode::Char('Y') => app.copy_raw_xml_to_clipboard(),
+                            KeyCode::Char('o') => app.open_selected_in_browser(),
                             KeyCode::Char('/') => app.input_mode = InputMode::Search,
                             KeyCode::Char('1') => app.set_level_filter(ActiveLevelFilter::Error),
                             KeyCode::Char('2') => app.set_level_filter(ActiveLevelFilter::Warning),
@@ -679,6 +717,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     if app.detail_expanded {
         if let Some(record) = app.selected_record() {
             let meta = app.event_db.get(&record.event_id);
+            let ref_url = get_reference_url(record.event_id, &record.provider);
 
             let title = match app.detail_mode {
                 DetailViewMode::Parameters => format!(
@@ -713,8 +752,25 @@ fn ui(f: &mut Frame, app: &mut App) {
                             Span::styled("Description: ", Style::default().fg(Color::Yellow)),
                             Span::raw(m.description),
                         ]));
-                        lines.push(Line::from(""));
                     }
+
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            "Doc Ref: ",
+                            Style::default()
+                                .fg(Color::Cyan)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            ref_url,
+                            Style::default()
+                                .fg(Color::Blue)
+                                .add_modifier(Modifier::UNDERLINED),
+                        ),
+                        Span::styled(" (Press 'o' to open)", Style::default().fg(Color::DarkGray)),
+                    ]));
+
+                    lines.push(Line::from(""));
 
                     lines.extend(vec![
                         Line::from(vec![
@@ -955,13 +1011,15 @@ fn ui(f: &mut Frame, app: &mut App) {
         Span::styled("g/G", Style::default().fg(Color::White)),
         Span::styled(" Top/Bot  ", Style::default().fg(Color::DarkGray)),
         Span::styled(
-            "COPY: ",
+            "ACTIONS: ",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
+        Span::styled("o", Style::default().fg(Color::Green)),
+        Span::styled(" Open Doc  ", Style::default().fg(Color::DarkGray)),
         Span::styled("y", Style::default().fg(Color::Green)),
-        Span::styled(" Summary  ", Style::default().fg(Color::DarkGray)),
+        Span::styled(" Copy  ", Style::default().fg(Color::DarkGray)),
         Span::styled("Y", Style::default().fg(Color::Green)),
         Span::styled(" XML  ", Style::default().fg(Color::DarkGray)),
         Span::styled(

@@ -1,5 +1,14 @@
 ## [unreleased]
 
+### 🚀 Features
+
+- Human-readable description implemented, more can be added later on
+([`94f1421…`](https://github.com/Qazaroth/feckmania/commit/94f14218b3a965e0d5790f1ae725a4e56e3cf276))
+
+- Common hex error codes translated to be human readable
+([`276c7f6…`](https://github.com/Qazaroth/feckmania/commit/276c7f61d821f711fe86c521aa652ff385ca216f))
+
+
 ### 📚 Documentation
 
 - Updated README to reflect what features are implemented

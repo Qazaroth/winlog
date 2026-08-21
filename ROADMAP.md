@@ -67,12 +67,12 @@ Focus on building a responsive, feature-rich TUI that directly competes with `ev
 
 Focus on making raw Windows logs actionable and context-rich.
 
-- [ ] **Context & Lookup Engine:**
+- [x] **Context & Lookup Engine:**
   - [x] Embed human-readable description dictionary for top 100+ Windows Event IDs (e.g., Event 4624 $
 ightarrow$ "Successful Logon").
   - [x] Automatically translate common HRESULT / NTSTATUS hex error codes (`0x80070005` $
 ightarrow$ "Access Denied").
-  - [ ] Provide quick lookup links to Microsoft Documentation / Sysmon references.
+  - [x] Provide quick lookup links to Microsoft Documentation / Sysmon references.
 - [ ] **Rule & Filter Presets:**
   - [ ] Support custom YAML/TOML preset configurations.
   - [ ] Ship with built-in audit presets:
