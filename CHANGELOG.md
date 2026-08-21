@@ -1,4 +1,4 @@
-## [unreleased]
+## [0.5.0] - 2026-08-21
 
 ### 🚀 Features
 
@@ -22,6 +22,9 @@
 
 - Fuzzy search implemented
 ([`4ae0478…`](https://github.com/Qazaroth/feckmania/commit/4ae0478f368f79d566d49483b46ea2bfe2899c6a))
+
+- Regex search implemented.
+([`7f1b09b…`](https://github.com/Qazaroth/feckmania/commit/7f1b09b2778ef2337d4792a247434479ad65b247))
 
 ## [0.4.0] - 2026-08-21
 
