@@ -15,7 +15,6 @@ use ratatui::{
 use std::io::stdout;
 use sysinfo::{CpuRefreshKind, Pid, ProcessRefreshKind, RefreshKind, System};
 
-// Use crate:: instead of winlog::
 use crate::record::{EventLevel, EventRecord};
 use crate::win_api::EventLogQuery;
 
@@ -25,19 +24,28 @@ pub enum DetailViewMode {
     RawXml,
 }
 
+#[derive(PartialEq, Eq)]
+pub enum InputMode {
+    Normal,
+    Search,
+}
+
 pub struct App {
-    pub records: Vec<EventRecord>,
+    pub all_records: Vec<EventRecord>,
+    pub filtered_indices: Vec<usize>,
     pub table_state: TableState,
     pub channel: String,
     pub detail_expanded: bool,
     pub detail_mode: DetailViewMode,
-    pub active_filter: String,
+    pub input_mode: InputMode,
+    pub search_query: String,
     pub sys: System,
     pub pid: Pid,
 }
 
 impl App {
     pub fn new(channel: String, records: Vec<EventRecord>) -> Self {
+        let filtered_indices = (0..records.len()).collect();
         let mut table_state = TableState::default();
         if !records.is_empty() {
             table_state.select(Some(0));
@@ -57,15 +65,113 @@ impl App {
         );
 
         Self {
-            records,
+            all_records: records,
+            filtered_indices,
             table_state,
             channel,
             detail_expanded: true,
             detail_mode: DetailViewMode::Parameters,
-            active_filter: "None".to_string(),
+            input_mode: InputMode::Normal,
+            search_query: String::new(),
             sys,
             pid,
         }
+    }
+
+    pub fn visible_count(&self) -> usize {
+        self.filtered_indices.len()
+    }
+
+    pub fn selected_record(&self) -> Option<&EventRecord> {
+        self.table_state
+            .selected()
+            .and_then(|idx| self.filtered_indices.get(idx))
+            .and_then(|&real_idx| self.all_records.get(real_idx))
+    }
+
+    pub fn apply_search(&mut self) {
+        if self.search_query.trim().is_empty() {
+            self.filtered_indices = (0..self.all_records.len()).collect();
+        } else {
+            let query = self.search_query.to_lowercase();
+            self.filtered_indices = self
+                .all_records
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| {
+                    r.provider.to_lowercase().contains(&query)
+                        || r.event_id.to_string().contains(&query)
+                        || r.computer.to_lowercase().contains(&query)
+                        || r.payload.iter().any(|(k, v)| {
+                            k.to_lowercase().contains(&query) || v.to_lowercase().contains(&query)
+                        })
+                })
+                .map(|(i, _)| i)
+                .collect();
+        }
+
+        if self.visible_count() > 0 {
+            self.table_state.select(Some(0));
+        } else {
+            self.table_state.select(None);
+        }
+    }
+
+    pub fn next(&mut self) {
+        if self.visible_count() == 0 {
+            return;
+        }
+        let i = match self.table_state.selected() {
+            Some(i) => {
+                if i >= self.visible_count() - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.table_state.select(Some(i));
+    }
+
+    pub fn previous(&mut self) {
+        if self.visible_count() == 0 {
+            return;
+        }
+        let i = match self.table_state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    self.visible_count() - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.table_state.select(Some(i));
+    }
+
+    pub fn jump_first(&mut self) {
+        if self.visible_count() > 0 {
+            self.table_state.select(Some(0));
+        }
+    }
+
+    pub fn jump_last(&mut self) {
+        if self.visible_count() > 0 {
+            self.table_state.select(Some(self.visible_count() - 1));
+        }
+    }
+
+    pub fn toggle_detail(&mut self) {
+        self.detail_expanded = !self.detail_expanded;
+    }
+
+    pub fn toggle_view_mode(&mut self) {
+        self.detail_mode = match self.detail_mode {
+            DetailViewMode::Parameters => DetailViewMode::RawXml,
+            DetailViewMode::RawXml => DetailViewMode::Parameters,
+        };
     }
 
     pub fn refresh_telemetry(&mut self) {
@@ -84,57 +190,6 @@ impl App {
         } else {
             (0.0, 0)
         }
-    }
-
-    pub fn selected_record(&self) -> Option<&EventRecord> {
-        self.table_state
-            .selected()
-            .and_then(|i| self.records.get(i))
-    }
-
-    pub fn next(&mut self) {
-        if self.records.is_empty() {
-            return;
-        }
-        let i = match self.table_state.selected() {
-            Some(i) => {
-                if i >= self.records.len() - 1 {
-                    0
-                } else {
-                    i + 1
-                }
-            }
-            None => 0,
-        };
-        self.table_state.select(Some(i));
-    }
-
-    pub fn previous(&mut self) {
-        if self.records.is_empty() {
-            return;
-        }
-        let i = match self.table_state.selected() {
-            Some(i) => {
-                if i == 0 {
-                    self.records.len() - 1
-                } else {
-                    i - 1
-                }
-            }
-            None => 0,
-        };
-        self.table_state.select(Some(i));
-    }
-
-    pub fn toggle_detail(&mut self) {
-        self.detail_expanded = !self.detail_expanded;
-    }
-
-    pub fn toggle_view_mode(&mut self) {
-        self.detail_mode = match self.detail_mode {
-            DetailViewMode::Parameters => DetailViewMode::RawXml,
-            DetailViewMode::RawXml => DetailViewMode::Parameters,
-        };
     }
 }
 
@@ -174,19 +229,43 @@ fn main_loop(
         app.refresh_telemetry();
         terminal.draw(|f| ui(f, app))?;
 
-        if event::poll(std::time::Duration::from_millis(200))? {
+        if event::poll(std::time::Duration::from_millis(150))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                            return Ok(());
-                        }
-                        KeyCode::Down | KeyCode::Char('j') => app.next(),
-                        KeyCode::Up | KeyCode::Char('k') => app.previous(),
-                        KeyCode::Char(' ') => app.toggle_detail(),
-                        KeyCode::Tab => app.toggle_view_mode(),
-                        _ => {}
+                    match app.input_mode {
+                        InputMode::Normal => match key.code {
+                            KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                return Ok(());
+                            }
+                            KeyCode::Down | KeyCode::Char('j') => app.next(),
+                            KeyCode::Up | KeyCode::Char('k') => app.previous(),
+                            KeyCode::Char('g') => app.jump_first(),
+                            KeyCode::Char('G') => app.jump_last(),
+                            KeyCode::Char('/') => app.input_mode = InputMode::Search,
+                            KeyCode::Char(' ') => app.toggle_detail(),
+                            KeyCode::Tab => app.toggle_view_mode(),
+                            _ => {}
+                        },
+                        InputMode::Search => match key.code {
+                            KeyCode::Enter => {
+                                app.input_mode = InputMode::Normal;
+                            }
+                            KeyCode::Esc => {
+                                app.search_query.clear();
+                                app.apply_search();
+                                app.input_mode = InputMode::Normal;
+                            }
+                            KeyCode::Char(c) => {
+                                app.search_query.push(c);
+                                app.apply_search();
+                            }
+                            KeyCode::Backspace => {
+                                app.search_query.pop();
+                                app.apply_search();
+                            }
+                            _ => {}
+                        },
                     }
                 }
             }
@@ -211,10 +290,11 @@ fn ui(f: &mut Frame, app: &mut App) {
         .constraints(content_constraints)
         .split(outer_chunks[0]);
 
-    // 1. Render Top Table
+    // 1. Top Table
     let rows: Vec<Row> = app
-        .records
+        .filtered_indices
         .iter()
+        .filter_map(|&idx| app.all_records.get(idx))
         .map(|r| {
             let timestamp = r
                 .timestamp
@@ -283,16 +363,16 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     f.render_stateful_widget(table, content_chunks[0], &mut app.table_state);
 
-    // 2. Render Collapsible Bottom Detail Pane
+    // 2. Detail Pane
     if app.detail_expanded {
         if let Some(record) = app.selected_record() {
             let title = match app.detail_mode {
                 DetailViewMode::Parameters => format!(
-                    " Event Details: ID {} [{}] (Press Tab for Raw XML) ",
+                    " Event Details: ID {} [{}] (Tab for Raw XML) ",
                     record.event_id, record.provider
                 ),
                 DetailViewMode::RawXml => format!(
-                    " Raw XML View: Event ID {} (Press Tab for Key-Values) ",
+                    " Raw XML View: Event ID {} (Tab for Key-Values) ",
                     record.event_id
                 ),
             };
@@ -359,55 +439,82 @@ fn ui(f: &mut Frame, app: &mut App) {
         }
     }
 
-    // 3. Render Status Bar
+    // 3. Status / Search Bar
     let (cpu, mem) = app.get_resource_usage();
-    let status_line = Line::from(vec![
-        Span::styled(
-            " CH: ",
-            Style::default()
-                .bg(Color::Blue)
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!(" {} ", app.channel),
-            Style::default().bg(Color::Rgb(50, 50, 50)).fg(Color::White),
-        ),
-        Span::raw(" "),
-        Span::styled(
-            " FILTER: ",
-            Style::default()
-                .bg(Color::Magenta)
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!(" {} ", app.active_filter),
-            Style::default().bg(Color::Rgb(50, 50, 50)).fg(Color::White),
-        ),
-        Span::raw(" "),
-        Span::styled(
-            " TOTAL: ",
-            Style::default()
-                .bg(Color::DarkGray)
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!(" {} ", app.records.len()),
-            Style::default().bg(Color::Rgb(50, 50, 50)).fg(Color::White),
-        ),
-        Span::raw(" | "),
-        Span::styled(
-            format!("CPU: {:.1}% | MEM: {}MB", cpu, mem),
-            Style::default().fg(Color::Green),
-        ),
-        Span::raw(" | "),
-        Span::styled(
-            "j/k:Nav Space:Pane Tab:XML q:Quit",
-            Style::default().fg(Color::DarkGray),
-        ),
-    ]);
+    let status_line = match app.input_mode {
+        InputMode::Search => Line::from(vec![
+            Span::styled(
+                " SEARCH: ",
+                Style::default()
+                    .bg(Color::Yellow)
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(" /{} ", app.search_query),
+                Style::default().fg(Color::White),
+            ),
+            Span::styled(
+                " (Press Enter to apply, Esc to cancel)",
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]),
+        InputMode::Normal => {
+            let filter_display = if app.search_query.is_empty() {
+                "None".to_string()
+            } else {
+                app.search_query.clone()
+            };
+
+            Line::from(vec![
+                Span::styled(
+                    " CH: ",
+                    Style::default()
+                        .bg(Color::Blue)
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!(" {} ", app.channel),
+                    Style::default().bg(Color::Rgb(50, 50, 50)).fg(Color::White),
+                ),
+                Span::raw(" "),
+                Span::styled(
+                    " SEARCH: ",
+                    Style::default()
+                        .bg(Color::Magenta)
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!(" {} ", filter_display),
+                    Style::default().bg(Color::Rgb(50, 50, 50)).fg(Color::White),
+                ),
+                Span::raw(" "),
+                Span::styled(
+                    " SHOWN: ",
+                    Style::default()
+                        .bg(Color::DarkGray)
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!(" {}/{} ", app.visible_count(), app.all_records.len()),
+                    Style::default().bg(Color::Rgb(50, 50, 50)).fg(Color::White),
+                ),
+                Span::raw(" | "),
+                Span::styled(
+                    format!("CPU: {:.1}% | MEM: {}MB", cpu, mem),
+                    Style::default().fg(Color::Green),
+                ),
+                Span::raw(" | "),
+                Span::styled(
+                    "j/k:Nav g/G:Top/Bot /:Search Space:Pane q:Quit",
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ])
+        }
+    };
 
     let status_bar = Paragraph::new(status_line);
     f.render_widget(status_bar, outer_chunks[1]);

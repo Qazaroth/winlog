@@ -8,6 +8,9 @@
 - Collapsible detail pane implemented.
 ([`4ad3c28…`](https://github.com/Qazaroth/feckmania/commit/4ad3c28db47f66b39f63d7509802433eb9a13fc0))
 
+- Status bar showing some data implemented
+([`8cc8cb7…`](https://github.com/Qazaroth/feckmania/commit/8cc8cb788c158675e75c2e593063b741f6957901))
+
 ## [0.4.0] - 2026-08-21
 
 ### 🚀 Features

@@ -54,7 +54,7 @@ Focus on building a responsive, feature-rich TUI that directly competes with `ev
   - [x] Collapsible Detail Pane showing formatted key-value event parameters and raw XML view.
   - [x] Status bar showing current channel, active filter, total event count, and resource usage.
 - [ ] **Keybindings & Ergonomics:**
-  - [ ] Vim-style navigation (`j`, `k`, `g`, `G`, `/`).
+  - [x] Vim-style navigation (`j`, `k`, `g`, `G`, `/`).
   - [ ] Quick log level toggles (`1` for Error, `2` for Warning, `3` for Info).
   - [ ] Copy formatted event summary or raw XML to system clipboard.
 - [ ] **Interactive Search:**
