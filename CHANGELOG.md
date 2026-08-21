@@ -1,3 +1,10 @@
+## [unreleased]
+
+### 📚 Documentation
+
+- Updated README to reflect what features are implemented
+([`e7ef43c…`](https://github.com/Qazaroth/feckmania/commit/e7ef43ca7b38317c3196290e893ac311315b111b))
+
 ## [0.5.0] - 2026-08-21
 
 ### 🚀 Features

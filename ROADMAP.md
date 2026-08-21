@@ -68,7 +68,7 @@ Focus on building a responsive, feature-rich TUI that directly competes with `ev
 Focus on making raw Windows logs actionable and context-rich.
 
 - [ ] **Context & Lookup Engine:**
-  - [ ] Embed human-readable description dictionary for top 100+ Windows Event IDs (e.g., Event 4624 $
+  - [x] Embed human-readable description dictionary for top 100+ Windows Event IDs (e.g., Event 4624 $
 ightarrow$ "Successful Logon").
   - [ ] Automatically translate common HRESULT / NTSTATUS hex error codes (`0x80070005` $
 ightarrow$ "Access Denied").

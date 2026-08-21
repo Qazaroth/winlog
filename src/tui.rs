@@ -1,3 +1,4 @@
+use crate::event_db::{EventMetadata, get_event_db};
 use anyhow::Result;
 use arboard::Clipboard;
 use crossterm::{
@@ -18,6 +19,7 @@ use ratatui::{
     widgets::{Block, Borders, Cell, HighlightSpacing, Paragraph, Row, Table, TableState, Wrap},
 };
 use regex::RegexBuilder;
+use std::collections::HashMap;
 use std::io::stdout;
 use std::time::Instant;
 use sysinfo::{CpuRefreshKind, Pid, ProcessRefreshKind, RefreshKind, System};
@@ -79,12 +81,14 @@ pub struct App {
     pub status_message: Option<(String, Instant)>,
     pub clipboard: Option<Clipboard>,
     pub matcher: Matcher,
+    pub event_db: HashMap<u32, EventMetadata>,
 }
 
 impl App {
     pub fn new(channel: String, records: Vec<EventRecord>) -> Self {
         let filtered_indices = (0..records.len()).collect();
         let mut table_state = TableState::default();
+        let event_db = get_event_db();
         if !records.is_empty() {
             table_state.select(Some(0));
         }
@@ -93,7 +97,7 @@ impl App {
         let mut sys = System::new_with_specifics(
             RefreshKind::nothing()
                 .with_processes(ProcessRefreshKind::everything())
-                .with_cpu(CpuRefreshKind::everything()), // <-- Enable CPU tracking
+                .with_cpu(CpuRefreshKind::everything()), // Enable CPU tracking
         );
 
         sys.refresh_processes_specifics(
@@ -121,6 +125,7 @@ impl App {
             status_message: None,
             clipboard,
             matcher: Matcher::new(Config::DEFAULT),
+            event_db,
         }
     }
 
@@ -150,7 +155,6 @@ impl App {
     pub fn apply_filters(&mut self) {
         let query_trimmed = self.search_query.trim();
 
-        // Check search strategy
         match self.search_mode {
             SearchMode::Regex => {
                 if query_trimmed.is_empty() {
@@ -159,7 +163,6 @@ impl App {
                     return;
                 }
 
-                // Live regex parsing & compilation check
                 let compiled_re = match RegexBuilder::new(query_trimmed)
                     .case_insensitive(true)
                     .build()
@@ -169,7 +172,6 @@ impl App {
                         re
                     }
                     Err(err) => {
-                        // Store friendly error description to highlight UI
                         let clean_err = err
                             .to_string()
                             .lines()
@@ -177,7 +179,7 @@ impl App {
                             .unwrap_or("Invalid regex")
                             .to_string();
                         self.regex_error = Some(clean_err);
-                        return; // Keep existing filtered indices on error
+                        return;
                     }
                 };
 
@@ -187,6 +189,12 @@ impl App {
                         continue;
                     }
 
+                    let event_title = self
+                        .event_db
+                        .get(&record.event_id)
+                        .map(|m| m.title)
+                        .unwrap_or("");
+
                     let payload_text = record
                         .payload
                         .iter()
@@ -195,8 +203,12 @@ impl App {
                         .join(" ");
 
                     let record_text = format!(
-                        "{} {} {} {}",
-                        record.event_id, record.provider, record.computer, payload_text
+                        "{} {} {} {} {}",
+                        record.event_id,
+                        event_title,
+                        record.provider,
+                        record.computer,
+                        payload_text
                     );
 
                     if compiled_re.is_match(&record_text) {
@@ -240,8 +252,18 @@ impl App {
                             .collect::<Vec<_>>()
                             .join(" ");
 
-                        let searchable_targets =
-                            [&record.provider, &record.computer, &payload_text];
+                        let event_title = self
+                            .event_db
+                            .get(&record.event_id)
+                            .map(|m| m.title)
+                            .unwrap_or("");
+
+                        let searchable_targets = [
+                            &record.provider,
+                            &record.computer,
+                            &payload_text,
+                            event_title,
+                        ];
 
                         for target in searchable_targets {
                             let utf32_target = Utf32Str::new(target, &mut buf);
@@ -333,9 +355,16 @@ impl App {
             .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
             .unwrap_or_else(|| "N/A".to_string());
 
+        let event_title = self
+            .event_db
+            .get(&record.event_id)
+            .map(|m| m.title)
+            .unwrap_or("Unknown Event");
+
         let mut summary = format!(
-            "Event ID: {}\nProvider: {}\nLevel: {:?}\nTimestamp: {}\nComputer: {}\nChannel: {}\n\nPayload:\n",
+            "Event ID: {} ({})\nProvider: {}\nLevel: {:?}\nTimestamp: {}\nComputer: {}\nChannel: {}\n\nPayload:\n",
             record.event_id,
+            event_title,
             record.provider,
             record.level,
             timestamp,
@@ -433,10 +462,7 @@ impl App {
     }
 
     pub fn refresh_telemetry(&mut self) {
-        // 1. Refresh global CPU stats so sysinfo can calculate deltas
         self.sys.refresh_cpu_all();
-
-        // 2. Refresh process metrics
         self.sys.refresh_processes_specifics(
             sysinfo::ProcessesToUpdate::Some(&[self.pid]),
             true,
@@ -448,9 +474,9 @@ impl App {
         if let Some(proc) = self.sys.process(self.pid) {
             let cpu_raw = proc.cpu_usage();
             let cpus = self.sys.cpus().len().max(1) as f32;
-            let cpu_normalized = cpu_raw / cpus; // Scale across available CPU cores
+            let cpu_normalized = cpu_raw / cpus;
 
-            let mem_mb = proc.memory() / (1024 * 1024); // Physical RAM (RSS)
+            let mem_mb = proc.memory() / (1024 * 1024);
             (cpu_normalized, mem_mb)
         } else {
             (0.0, 0)
@@ -585,6 +611,14 @@ fn ui(f: &mut Frame, app: &mut App) {
                 _ => ("Unknown", Color::DarkGray),
             };
 
+            let event_title = app
+                .event_db
+                .get(&r.event_id)
+                .map(|m| m.title)
+                .unwrap_or("Unknown Event");
+
+            let id_display = format!("{} - {}", r.event_id, event_title);
+
             let payload_summary = r
                 .payload
                 .first()
@@ -594,7 +628,7 @@ fn ui(f: &mut Frame, app: &mut App) {
             Row::new(vec![
                 Cell::from(timestamp),
                 Cell::from(level_str).style(Style::default().fg(level_color)),
-                Cell::from(r.event_id.to_string()),
+                Cell::from(id_display),
                 Cell::from(r.provider.clone()),
                 Cell::from(payload_summary),
             ])
@@ -604,7 +638,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     let header = Row::new(vec![
         "Timestamp",
         "Level",
-        "ID",
+        "ID / Event Title",
         "Source",
         "Message Summary",
     ])
@@ -620,8 +654,8 @@ fn ui(f: &mut Frame, app: &mut App) {
         [
             Constraint::Length(20),
             Constraint::Length(10),
-            Constraint::Length(8),
-            Constraint::Length(25),
+            Constraint::Length(30),
+            Constraint::Length(22),
             Constraint::Min(30),
         ],
     )
@@ -643,6 +677,8 @@ fn ui(f: &mut Frame, app: &mut App) {
     // 2. Detail Pane
     if app.detail_expanded {
         if let Some(record) = app.selected_record() {
+            let meta = app.event_db.get(&record.event_id);
+
             let title = match app.detail_mode {
                 DetailViewMode::Parameters => format!(
                     " Event Details: ID {} [{}] (Tab for Raw XML) ",
@@ -658,7 +694,28 @@ fn ui(f: &mut Frame, app: &mut App) {
 
             let content: Vec<Line> = match app.detail_mode {
                 DetailViewMode::Parameters => {
-                    let mut lines = vec![
+                    let mut lines = vec![];
+
+                    if let Some(m) = meta {
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                "Title: ",
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                            Span::raw(m.title),
+                            Span::styled(" | Category: ", Style::default().fg(Color::DarkGray)),
+                            Span::raw(m.category),
+                        ]));
+                        lines.push(Line::from(vec![
+                            Span::styled("Description: ", Style::default().fg(Color::Yellow)),
+                            Span::raw(m.description),
+                        ]));
+                        lines.push(Line::from(""));
+                    }
+
+                    lines.extend(vec![
                         Line::from(vec![
                             Span::styled("Computer: ", Style::default().fg(Color::DarkGray)),
                             Span::raw(&record.computer),
@@ -686,7 +743,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                             "--- Parameters ---",
                             Style::default().fg(Color::Yellow),
                         )),
-                    ];
+                    ]);
 
                     if record.payload.is_empty() {
                         lines.push(Line::from(Span::styled(
