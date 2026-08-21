@@ -1,9 +1,7 @@
-use crate::record::{EventLevel, EventRecord};
-use crate::win_api::EventLogQuery;
 use anyhow::Result;
 use crossterm::{
     ExecutableCommand,
-    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers}, // <-- Added KeyEventKind
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
@@ -15,6 +13,11 @@ use ratatui::{
     widgets::{Block, Borders, Cell, HighlightSpacing, Paragraph, Row, Table, TableState, Wrap},
 };
 use std::io::stdout;
+use sysinfo::{CpuRefreshKind, Pid, ProcessRefreshKind, RefreshKind, System};
+
+// Use crate:: instead of winlog::
+use crate::record::{EventLevel, EventRecord};
+use crate::win_api::EventLogQuery;
 
 #[derive(PartialEq, Eq)]
 pub enum DetailViewMode {
@@ -22,13 +25,15 @@ pub enum DetailViewMode {
     RawXml,
 }
 
-/// Holds state for the TUI view without cluttering EventRecord
 pub struct App {
     pub records: Vec<EventRecord>,
     pub table_state: TableState,
     pub channel: String,
     pub detail_expanded: bool,
     pub detail_mode: DetailViewMode,
+    pub active_filter: String,
+    pub sys: System,
+    pub pid: Pid,
 }
 
 impl App {
@@ -37,12 +42,47 @@ impl App {
         if !records.is_empty() {
             table_state.select(Some(0));
         }
+
+        let pid = Pid::from_u32(std::process::id());
+        let mut sys = System::new_with_specifics(
+            RefreshKind::nothing()
+                .with_processes(ProcessRefreshKind::nothing().with_cpu().with_memory())
+                .with_cpu(CpuRefreshKind::nothing()),
+        );
+
+        sys.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::Some(&[pid]),
+            true,
+            ProcessRefreshKind::nothing().with_cpu().with_memory(),
+        );
+
         Self {
             records,
             table_state,
             channel,
             detail_expanded: true,
             detail_mode: DetailViewMode::Parameters,
+            active_filter: "None".to_string(),
+            sys,
+            pid,
+        }
+    }
+
+    pub fn refresh_telemetry(&mut self) {
+        self.sys.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::Some(&[self.pid]),
+            true,
+            ProcessRefreshKind::nothing().with_cpu().with_memory(),
+        );
+    }
+
+    pub fn get_resource_usage(&self) -> (f32, u64) {
+        if let Some(proc) = self.sys.process(self.pid) {
+            let cpu = proc.cpu_usage();
+            let mem_mb = proc.memory() / (1024 * 1024);
+            (cpu, mem_mb)
+        } else {
+            (0.0, 0)
         }
     }
 
@@ -99,7 +139,6 @@ impl App {
 }
 
 pub fn run_tui(channel: &str, limit: u32) -> Result<()> {
-    // 1. Fetch data using existing decoupled core engine
     let query = EventLogQuery::open_path_or_channel(channel)?;
     let raw_events = query.next_events(limit)?;
 
@@ -114,17 +153,14 @@ pub fn run_tui(channel: &str, limit: u32) -> Result<()> {
 
     let mut app = App::new(channel.to_string(), records);
 
-    // 2. Setup Terminal
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
-    // 3. Event loop
     let res = main_loop(&mut terminal, &mut app);
 
-    // 4. Restore terminal on exit
     disable_raw_mode()?;
-    stdout().execute(LeaveAlternateScreen);
+    stdout().execute(LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
     res
@@ -135,11 +171,11 @@ fn main_loop(
     app: &mut App,
 ) -> Result<()> {
     loop {
+        app.refresh_telemetry();
         terminal.draw(|f| ui(f, app))?;
 
-        if event::poll(std::time::Duration::from_millis(100))? {
+        if event::poll(std::time::Duration::from_millis(200))? {
             if let Event::Key(key) = event::read()? {
-                // Ignore key repeat and release events to prevent multi-triggering
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
@@ -159,16 +195,21 @@ fn main_loop(
 }
 
 fn ui(f: &mut Frame, app: &mut App) {
-    let constraints = if app.detail_expanded {
-        vec![Constraint::Percentage(55), Constraint::Percentage(45)]
+    let outer_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .split(f.area());
+
+    let content_constraints = if app.detail_expanded {
+        vec![Constraint::Percentage(60), Constraint::Percentage(40)]
     } else {
         vec![Constraint::Min(0)]
     };
 
-    let main_chunks = Layout::default()
+    let content_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(constraints)
-        .split(f.area());
+        .constraints(content_constraints)
+        .split(outer_chunks[0]);
 
     // 1. Render Top Table
     let rows: Vec<Row> = app
@@ -228,11 +269,11 @@ fn ui(f: &mut Frame, app: &mut App) {
         ],
     )
     .header(header)
-    .block(Block::default().borders(Borders::ALL).title(format!(
-        " winlog TUI - Channel: {} (Count: {}) ",
-        app.channel,
-        app.records.len()
-    )))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(format!(" winlog TUI - Channel: {} ", app.channel)),
+    )
     .row_highlight_style(
         Style::default()
             .bg(Color::Rgb(40, 44, 52))
@@ -240,7 +281,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     )
     .highlight_spacing(HighlightSpacing::Always);
 
-    f.render_stateful_widget(table, main_chunks[0], &mut app.table_state);
+    f.render_stateful_widget(table, content_chunks[0], &mut app.table_state);
 
     // 2. Render Collapsible Bottom Detail Pane
     if app.detail_expanded {
@@ -314,7 +355,60 @@ fn ui(f: &mut Frame, app: &mut App) {
             let paragraph = Paragraph::new(content)
                 .block(detail_block)
                 .wrap(Wrap { trim: false });
-            f.render_widget(paragraph, main_chunks[1]);
+            f.render_widget(paragraph, content_chunks[1]);
         }
     }
+
+    // 3. Render Status Bar
+    let (cpu, mem) = app.get_resource_usage();
+    let status_line = Line::from(vec![
+        Span::styled(
+            " CH: ",
+            Style::default()
+                .bg(Color::Blue)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(" {} ", app.channel),
+            Style::default().bg(Color::Rgb(50, 50, 50)).fg(Color::White),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            " FILTER: ",
+            Style::default()
+                .bg(Color::Magenta)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(" {} ", app.active_filter),
+            Style::default().bg(Color::Rgb(50, 50, 50)).fg(Color::White),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            " TOTAL: ",
+            Style::default()
+                .bg(Color::DarkGray)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(" {} ", app.records.len()),
+            Style::default().bg(Color::Rgb(50, 50, 50)).fg(Color::White),
+        ),
+        Span::raw(" | "),
+        Span::styled(
+            format!("CPU: {:.1}% | MEM: {}MB", cpu, mem),
+            Style::default().fg(Color::Green),
+        ),
+        Span::raw(" | "),
+        Span::styled(
+            "j/k:Nav Space:Pane Tab:XML q:Quit",
+            Style::default().fg(Color::DarkGray),
+        ),
+    ]);
+
+    let status_bar = Paragraph::new(status_line);
+    f.render_widget(status_bar, outer_chunks[1]);
 }

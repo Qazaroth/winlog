@@ -49,10 +49,10 @@ Focus on real-time log monitoring and integration with terminal pipelines.
 
 Focus on building a responsive, feature-rich TUI that directly competes with `eventvwr.msc`.
 
-- [ ] **Split-Pane UI Architecture:**
+- [x] **Split-Pane UI Architecture:**
   - [x] Virtualized, high-performance scrollable Event Table (Timestamp, Level, ID, Source, Message summary).
   - [x] Collapsible Detail Pane showing formatted key-value event parameters and raw XML view.
-  - [ ] Status bar showing current channel, active filter, total event count, and resource usage.
+  - [x] Status bar showing current channel, active filter, total event count, and resource usage.
 - [ ] **Keybindings & Ergonomics:**
   - [ ] Vim-style navigation (`j`, `k`, `g`, `G`, `/`).
   - [ ] Quick log level toggles (`1` for Error, `2` for Warning, `3` for Info).

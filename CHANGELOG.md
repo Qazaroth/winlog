@@ -1,3 +1,13 @@
+## [unreleased]
+
+### 🚀 Features
+
+- Scrollable event table tui implemented
+([`00aec90…`](https://github.com/Qazaroth/feckmania/commit/00aec9023e6a90abef90d183ab48d3a012d662ea))
+
+- Collapsible detail pane implemented.
+([`4ad3c28…`](https://github.com/Qazaroth/feckmania/commit/4ad3c28db47f66b39f63d7509802433eb9a13fc0))
+
 ## [0.4.0] - 2026-08-21
 
 ### 🚀 Features
