@@ -11,3 +11,4 @@ clap = {version = "4.6.6", features = ["derive"]}
 windows = {version = "0.62.2", features = ["Win32_Foundation", "Win32_System_EventLog"] }
 colored = "3.1.1"
 crossbeam-channel = "0.5.16"
+ctrlc = "3.5.2"

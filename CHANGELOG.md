@@ -1,3 +1,10 @@
+## [unreleased]
+
+### 🚀 Features
+
+- Asynchronous streaming subscriber implemented using 'EvtSubscribe'
+([`6372fee…`](https://github.com/Qazaroth/feckmania/commit/6372fee281324abd679091684b5ec3b9e457bccd))
+
 ## [0.3.0] - 2026-08-20
 
 ### 🚀 Features
