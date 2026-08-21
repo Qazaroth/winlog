@@ -17,6 +17,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Cell, HighlightSpacing, Paragraph, Row, Table, TableState, Wrap},
 };
+use regex::RegexBuilder;
 use std::io::stdout;
 use std::time::Instant;
 use sysinfo::{CpuRefreshKind, Pid, ProcessRefreshKind, RefreshKind, System};
@@ -34,6 +35,12 @@ pub enum DetailViewMode {
 pub enum InputMode {
     Normal,
     Search,
+}
+
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum SearchMode {
+    Fuzzy,
+    Regex,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -63,7 +70,9 @@ pub struct App {
     pub detail_expanded: bool,
     pub detail_mode: DetailViewMode,
     pub input_mode: InputMode,
+    pub search_mode: SearchMode,
     pub search_query: String,
+    pub regex_error: Option<String>,
     pub level_filter: ActiveLevelFilter,
     pub sys: System,
     pub pid: Pid,
@@ -83,8 +92,8 @@ impl App {
         let pid = Pid::from_u32(std::process::id());
         let mut sys = System::new_with_specifics(
             RefreshKind::nothing()
-                .with_processes(ProcessRefreshKind::nothing().with_cpu().with_memory())
-                .with_cpu(CpuRefreshKind::nothing()),
+                .with_processes(ProcessRefreshKind::everything())
+                .with_cpu(CpuRefreshKind::everything()), // <-- Enable CPU tracking
         );
 
         sys.refresh_processes_specifics(
@@ -103,7 +112,9 @@ impl App {
             detail_expanded: true,
             detail_mode: DetailViewMode::Parameters,
             input_mode: InputMode::Normal,
+            search_mode: SearchMode::Fuzzy,
             search_query: String::new(),
+            regex_error: None,
             level_filter: ActiveLevelFilter::All,
             sys,
             pid,
@@ -128,87 +139,172 @@ impl App {
             .and_then(|&real_idx| self.all_records.get(real_idx))
     }
 
+    pub fn toggle_search_mode(&mut self) {
+        self.search_mode = match self.search_mode {
+            SearchMode::Fuzzy => SearchMode::Regex,
+            SearchMode::Regex => SearchMode::Fuzzy,
+        };
+        self.apply_filters();
+    }
+
     pub fn apply_filters(&mut self) {
         let query_trimmed = self.search_query.trim();
 
-        let atom = if !query_trimmed.is_empty() {
-            Some(Atom::new(
-                query_trimmed,
-                CaseMatching::Ignore,
-                Normalization::Smart,
-                AtomKind::Fuzzy,
-                false,
-            ))
-        } else {
-            None
-        };
-
-        let mut scored_indices: Vec<(usize, u32)> = Vec::with_capacity(self.all_records.len());
-
-        for (idx, record) in self.all_records.iter().enumerate() {
-            // 1. Level Filter
-            let level_matches = match self.level_filter {
-                ActiveLevelFilter::All => true,
-                ActiveLevelFilter::Error => {
-                    matches!(record.level, EventLevel::Error | EventLevel::Critical)
+        // Check search strategy
+        match self.search_mode {
+            SearchMode::Regex => {
+                if query_trimmed.is_empty() {
+                    self.regex_error = None;
+                    self.filter_by_level_only();
+                    return;
                 }
-                ActiveLevelFilter::Warning => matches!(record.level, EventLevel::Warning),
-                ActiveLevelFilter::Information => matches!(record.level, EventLevel::Information),
-            };
 
-            if !level_matches {
-                continue;
+                // Live regex parsing & compilation check
+                let compiled_re = match RegexBuilder::new(query_trimmed)
+                    .case_insensitive(true)
+                    .build()
+                {
+                    Ok(re) => {
+                        self.regex_error = None;
+                        re
+                    }
+                    Err(err) => {
+                        // Store friendly error description to highlight UI
+                        let clean_err = err
+                            .to_string()
+                            .lines()
+                            .next()
+                            .unwrap_or("Invalid regex")
+                            .to_string();
+                        self.regex_error = Some(clean_err);
+                        return; // Keep existing filtered indices on error
+                    }
+                };
+
+                let mut matched_indices = Vec::new();
+                for (idx, record) in self.all_records.iter().enumerate() {
+                    if !self.matches_level(record) {
+                        continue;
+                    }
+
+                    let payload_text = record
+                        .payload
+                        .iter()
+                        .map(|(k, v)| format!("{} {}", k, v))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+
+                    let record_text = format!(
+                        "{} {} {} {}",
+                        record.event_id, record.provider, record.computer, payload_text
+                    );
+
+                    if compiled_re.is_match(&record_text) {
+                        matched_indices.push(idx);
+                    }
+                }
+
+                self.filtered_indices = matched_indices;
             }
+            SearchMode::Fuzzy => {
+                self.regex_error = None;
 
-            // 2. Fuzzy Matcher
-            if let Some(ref atom_pattern) = atom {
-                let mut max_score: u32 = 0;
-                let mut buf = Vec::new();
+                let atom = if !query_trimmed.is_empty() {
+                    Some(Atom::new(
+                        query_trimmed,
+                        CaseMatching::Ignore,
+                        Normalization::Smart,
+                        AtomKind::Fuzzy,
+                        false,
+                    ))
+                } else {
+                    None
+                };
 
-                // Generate searchable fields for the record
-                let payload_text = record
-                    .payload
-                    .iter()
-                    .map(|(k, v)| format!("{} {}", k, v))
-                    .collect::<Vec<_>>()
-                    .join(" ");
+                let mut scored_indices: Vec<(usize, u32)> =
+                    Vec::with_capacity(self.all_records.len());
 
-                let searchable_targets = [&record.provider, &record.computer, &payload_text];
+                for (idx, record) in self.all_records.iter().enumerate() {
+                    if !self.matches_level(record) {
+                        continue;
+                    }
 
-                for target in searchable_targets {
-                    let utf32_target = Utf32Str::new(target, &mut buf);
-                    if let Some(score) = atom_pattern.score(utf32_target, &mut self.matcher) {
-                        let score_val = score as u32;
-                        if score_val > max_score {
-                            max_score = score_val;
+                    if let Some(ref atom_pattern) = atom {
+                        let mut max_score: u32 = 0;
+                        let mut buf = Vec::new();
+
+                        let payload_text = record
+                            .payload
+                            .iter()
+                            .map(|(k, v)| format!("{} {}", k, v))
+                            .collect::<Vec<_>>()
+                            .join(" ");
+
+                        let searchable_targets =
+                            [&record.provider, &record.computer, &payload_text];
+
+                        for target in searchable_targets {
+                            let utf32_target = Utf32Str::new(target, &mut buf);
+                            if let Some(score) = atom_pattern.score(utf32_target, &mut self.matcher)
+                            {
+                                let score_val = score as u32;
+                                if score_val > max_score {
+                                    max_score = score_val;
+                                }
+                            }
                         }
+
+                        let event_id_str = record.event_id.to_string();
+                        let utf32_id = Utf32Str::new(&event_id_str, &mut buf);
+                        if let Some(score) = atom_pattern.score(utf32_id, &mut self.matcher) {
+                            let score_val = score as u32 + 50;
+                            if score_val > max_score {
+                                max_score = score_val;
+                            }
+                        }
+
+                        if max_score > 0 {
+                            scored_indices.push((idx, max_score));
+                        }
+                    } else {
+                        scored_indices.push((idx, 0));
                     }
                 }
 
-                // Also check event ID exact match bonus
-                let event_id_str = record.event_id.to_string();
-                let utf32_id = Utf32Str::new(&event_id_str, &mut buf);
-                if let Some(score) = atom_pattern.score(utf32_id, &mut self.matcher) {
-                    let score_val = score as u32 + 50; // Boost ID matching
-                    if score_val > max_score {
-                        max_score = score_val;
-                    }
+                if atom.is_some() {
+                    scored_indices.sort_by(|a, b| b.1.cmp(&a.1));
                 }
 
-                if max_score > 0 {
-                    scored_indices.push((idx, max_score));
-                }
-            } else {
-                scored_indices.push((idx, 0));
+                self.filtered_indices = scored_indices.into_iter().map(|(idx, _)| idx).collect();
             }
         }
 
-        // Sort descending by fuzzy score when search term is provided
-        if atom.is_some() {
-            scored_indices.sort_by(|a, b| b.1.cmp(&a.1));
+        if self.visible_count() > 0 {
+            self.table_state.select(Some(0));
+        } else {
+            self.table_state.select(None);
         }
+    }
 
-        self.filtered_indices = scored_indices.into_iter().map(|(idx, _)| idx).collect();
+    fn matches_level(&self, record: &EventRecord) -> bool {
+        match self.level_filter {
+            ActiveLevelFilter::All => true,
+            ActiveLevelFilter::Error => {
+                matches!(record.level, EventLevel::Error | EventLevel::Critical)
+            }
+            ActiveLevelFilter::Warning => matches!(record.level, EventLevel::Warning),
+            ActiveLevelFilter::Information => matches!(record.level, EventLevel::Information),
+        }
+    }
+
+    fn filter_by_level_only(&mut self) {
+        self.filtered_indices = self
+            .all_records
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| self.matches_level(r))
+            .map(|(i, _)| i)
+            .collect();
 
         if self.visible_count() > 0 {
             self.table_state.select(Some(0));
@@ -337,6 +433,10 @@ impl App {
     }
 
     pub fn refresh_telemetry(&mut self) {
+        // 1. Refresh global CPU stats so sysinfo can calculate deltas
+        self.sys.refresh_cpu_all();
+
+        // 2. Refresh process metrics
         self.sys.refresh_processes_specifics(
             sysinfo::ProcessesToUpdate::Some(&[self.pid]),
             true,
@@ -346,9 +446,12 @@ impl App {
 
     pub fn get_resource_usage(&self) -> (f32, u64) {
         if let Some(proc) = self.sys.process(self.pid) {
-            let cpu = proc.cpu_usage();
-            let mem_mb = proc.memory() / (1024 * 1024);
-            (cpu, mem_mb)
+            let cpu_raw = proc.cpu_usage();
+            let cpus = self.sys.cpus().len().max(1) as f32;
+            let cpu_normalized = cpu_raw / cpus; // Scale across available CPU cores
+
+            let mem_mb = proc.memory() / (1024 * 1024); // Physical RAM (RSS)
+            (cpu_normalized, mem_mb)
         } else {
             (0.0, 0)
         }
@@ -423,8 +526,12 @@ fn main_loop(
                             }
                             KeyCode::Esc => {
                                 app.search_query.clear();
+                                app.regex_error = None;
                                 app.apply_filters();
                                 app.input_mode = InputMode::Normal;
+                            }
+                            KeyCode::Tab => {
+                                app.toggle_search_mode();
                             }
                             KeyCode::Char(c) => {
                                 app.search_query.push(c);
@@ -620,25 +727,53 @@ fn ui(f: &mut Frame, app: &mut App) {
     };
 
     let line1 = match app.input_mode {
-        InputMode::Search => Line::from(vec![
-            Span::styled(
-                " FUZZY SEARCH ",
-                Style::default()
-                    .bg(Color::Yellow)
-                    .fg(Color::Black)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(" /{} ", app.search_query),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                " (Press Enter to confirm filter, Esc to clear)",
+        InputMode::Search => {
+            let (mode_badge, mode_bg) = match app.search_mode {
+                SearchMode::Fuzzy => (" FUZZY SEARCH ", Color::Yellow),
+                SearchMode::Regex => (" REGEX SEARCH ", Color::Cyan),
+            };
+
+            let mut spans = vec![
+                Span::styled(
+                    mode_badge,
+                    Style::default()
+                        .bg(mode_bg)
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!(" /{:.40} ", app.search_query),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ];
+
+            if let Some(ref err) = app.regex_error {
+                spans.push(Span::styled(
+                    format!(" [REGEX ERR: {}] ", err),
+                    Style::default()
+                        .bg(Color::Red)
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            } else if app.search_mode == SearchMode::Regex && !app.search_query.is_empty() {
+                spans.push(Span::styled(
+                    " [VALID REGEX] ",
+                    Style::default()
+                        .bg(Color::Green)
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            }
+
+            spans.push(Span::styled(
+                " (Tab: Toggle Fuzzy/Regex, Enter: Confirm, Esc: Clear)",
                 Style::default().fg(Color::DarkGray),
-            ),
-        ]),
+            ));
+
+            Line::from(spans)
+        }
         InputMode::Normal => {
             let mut spans = vec![
                 Span::styled(
@@ -671,11 +806,16 @@ fn ui(f: &mut Frame, app: &mut App) {
             ];
 
             if !app.search_query.is_empty() {
+                let (mode_tag, tag_bg) = match app.search_mode {
+                    SearchMode::Fuzzy => (" FZF: ", Color::Yellow),
+                    SearchMode::Regex => (" REGEX: ", Color::Cyan),
+                };
+
                 spans.extend(vec![
                     Span::styled(
-                        " FZF: ",
+                        mode_tag,
                         Style::default()
-                            .bg(Color::Yellow)
+                            .bg(tag_bg)
                             .fg(Color::Black)
                             .add_modifier(Modifier::BOLD),
                     ),
@@ -683,7 +823,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                         format!(" {} ", app.search_query),
                         Style::default()
                             .bg(Color::Rgb(50, 50, 50))
-                            .fg(Color::Yellow)
+                            .fg(Color::White)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::raw(" "),
@@ -758,7 +898,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         Span::styled("1-3", Style::default().fg(Color::Yellow)),
         Span::styled(" Lvl ", Style::default().fg(Color::DarkGray)),
         Span::styled("/", Style::default().fg(Color::Yellow)),
-        Span::styled(" Fuzzy  ", Style::default().fg(Color::DarkGray)),
+        Span::styled(" Search  ", Style::default().fg(Color::DarkGray)),
         Span::styled(
             "VIEW: ",
             Style::default()

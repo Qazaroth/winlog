@@ -57,9 +57,9 @@ Focus on building a responsive, feature-rich TUI that directly competes with `ev
   - [x] Vim-style navigation (`j`, `k`, `g`, `G`, `/`).
   - [x] Quick log level toggles (`1` for Error, `2` for Warning, `3` for Info).
   - [x] Copy formatted event summary or raw XML to system clipboard.
-- [ ] **Interactive Search:**
+- [x] **Interactive Search:**
   - [x] Sub-millisecond fuzzy search across rendered events (`fzf`-style).
-  - [ ] Regex query input box with live syntax checking.
+  - [x] Regex query input box with live syntax checking.
 
 ---
 

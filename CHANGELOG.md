@@ -17,6 +17,12 @@
 - Log-level toggles implemented
 ([`2db7c08…`](https://github.com/Qazaroth/feckmania/commit/2db7c088ef78451566878d277d538367865d4e89))
 
+- Able to now copy formatted event summary or raw XML
+([`4cb4a87…`](https://github.com/Qazaroth/feckmania/commit/4cb4a87cde7c2e8d2d659421895091466a7fdb53))
+
+- Fuzzy search implemented
+([`4ae0478…`](https://github.com/Qazaroth/feckmania/commit/4ae0478f368f79d566d49483b46ea2bfe2899c6a))
+
 ## [0.4.0] - 2026-08-21
 
 ### 🚀 Features

@@ -2456,6 +2456,7 @@ dependencies = [
  "ctrlc",
  "nucleo-matcher",
  "ratatui",
+ "regex",
  "roxmltree",
  "serde",
  "serde_json",
