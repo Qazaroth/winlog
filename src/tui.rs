@@ -30,6 +30,25 @@ pub enum InputMode {
     Search,
 }
 
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum ActiveLevelFilter {
+    All,
+    Error,
+    Warning,
+    Information,
+}
+
+impl ActiveLevelFilter {
+    pub fn label(&self) -> &'static str {
+        match self {
+            ActiveLevelFilter::All => "ALL",
+            ActiveLevelFilter::Error => "ERROR",
+            ActiveLevelFilter::Warning => "WARN",
+            ActiveLevelFilter::Information => "INFO",
+        }
+    }
+}
+
 pub struct App {
     pub all_records: Vec<EventRecord>,
     pub filtered_indices: Vec<usize>,
@@ -39,6 +58,7 @@ pub struct App {
     pub detail_mode: DetailViewMode,
     pub input_mode: InputMode,
     pub search_query: String,
+    pub level_filter: ActiveLevelFilter,
     pub sys: System,
     pub pid: Pid,
 }
@@ -73,6 +93,7 @@ impl App {
             detail_mode: DetailViewMode::Parameters,
             input_mode: InputMode::Normal,
             search_query: String::new(),
+            level_filter: ActiveLevelFilter::All,
             sys,
             pid,
         }
@@ -89,32 +110,56 @@ impl App {
             .and_then(|&real_idx| self.all_records.get(real_idx))
     }
 
-    pub fn apply_search(&mut self) {
-        if self.search_query.trim().is_empty() {
-            self.filtered_indices = (0..self.all_records.len()).collect();
-        } else {
-            let query = self.search_query.to_lowercase();
-            self.filtered_indices = self
-                .all_records
-                .iter()
-                .enumerate()
-                .filter(|(_, r)| {
+    pub fn apply_filters(&mut self) {
+        let query = self.search_query.to_lowercase();
+        let query_empty = query.trim().is_empty();
+
+        self.filtered_indices = self
+            .all_records
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| {
+                let level_matches = match self.level_filter {
+                    ActiveLevelFilter::All => true,
+                    ActiveLevelFilter::Error => {
+                        matches!(r.level, EventLevel::Error | EventLevel::Critical)
+                    }
+                    ActiveLevelFilter::Warning => matches!(r.level, EventLevel::Warning),
+                    ActiveLevelFilter::Information => matches!(r.level, EventLevel::Information),
+                };
+
+                if !level_matches {
+                    return false;
+                }
+
+                if query_empty {
+                    true
+                } else {
                     r.provider.to_lowercase().contains(&query)
                         || r.event_id.to_string().contains(&query)
                         || r.computer.to_lowercase().contains(&query)
                         || r.payload.iter().any(|(k, v)| {
                             k.to_lowercase().contains(&query) || v.to_lowercase().contains(&query)
                         })
-                })
-                .map(|(i, _)| i)
-                .collect();
-        }
+                }
+            })
+            .map(|(i, _)| i)
+            .collect();
 
         if self.visible_count() > 0 {
             self.table_state.select(Some(0));
         } else {
             self.table_state.select(None);
         }
+    }
+
+    pub fn set_level_filter(&mut self, filter: ActiveLevelFilter) {
+        if self.level_filter == filter {
+            self.level_filter = ActiveLevelFilter::All;
+        } else {
+            self.level_filter = filter;
+        }
+        self.apply_filters();
     }
 
     pub fn next(&mut self) {
@@ -243,6 +288,12 @@ fn main_loop(
                             KeyCode::Char('g') => app.jump_first(),
                             KeyCode::Char('G') => app.jump_last(),
                             KeyCode::Char('/') => app.input_mode = InputMode::Search,
+                            KeyCode::Char('1') => app.set_level_filter(ActiveLevelFilter::Error),
+                            KeyCode::Char('2') => app.set_level_filter(ActiveLevelFilter::Warning),
+                            KeyCode::Char('3') => {
+                                app.set_level_filter(ActiveLevelFilter::Information)
+                            }
+                            KeyCode::Char('0') => app.set_level_filter(ActiveLevelFilter::All),
                             KeyCode::Char(' ') => app.toggle_detail(),
                             KeyCode::Tab => app.toggle_view_mode(),
                             _ => {}
@@ -253,16 +304,16 @@ fn main_loop(
                             }
                             KeyCode::Esc => {
                                 app.search_query.clear();
-                                app.apply_search();
+                                app.apply_filters();
                                 app.input_mode = InputMode::Normal;
                             }
                             KeyCode::Char(c) => {
                                 app.search_query.push(c);
-                                app.apply_search();
+                                app.apply_filters();
                             }
                             KeyCode::Backspace => {
                                 app.search_query.pop();
-                                app.apply_search();
+                                app.apply_filters();
                             }
                             _ => {}
                         },
@@ -274,9 +325,10 @@ fn main_loop(
 }
 
 fn ui(f: &mut Frame, app: &mut App) {
+    // Reserve 2 lines at the bottom: Line 1 for status badges, Line 2 for keybindings
     let outer_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .constraints([Constraint::Min(0), Constraint::Length(2)])
         .split(f.area());
 
     let content_constraints = if app.detail_expanded {
@@ -290,7 +342,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         .constraints(content_constraints)
         .split(outer_chunks[0]);
 
-    // 1. Top Table
+    // 1. Event Table
     let rows: Vec<Row> = app
         .filtered_indices
         .iter()
@@ -439,12 +491,20 @@ fn ui(f: &mut Frame, app: &mut App) {
         }
     }
 
-    // 3. Status / Search Bar
+    // 3. Two-Line Status Footer
     let (cpu, mem) = app.get_resource_usage();
-    let status_line = match app.input_mode {
+
+    let (level_bg, level_fg) = match app.level_filter {
+        ActiveLevelFilter::All => (Color::Rgb(50, 50, 50), Color::White),
+        ActiveLevelFilter::Error => (Color::Red, Color::White),
+        ActiveLevelFilter::Warning => (Color::Yellow, Color::Black),
+        ActiveLevelFilter::Information => (Color::Green, Color::Black),
+    };
+
+    let line1 = match app.input_mode {
         InputMode::Search => Line::from(vec![
             Span::styled(
-                " SEARCH: ",
+                " SEARCH MODE ",
                 Style::default()
                     .bg(Color::Yellow)
                     .fg(Color::Black)
@@ -452,21 +512,17 @@ fn ui(f: &mut Frame, app: &mut App) {
             ),
             Span::styled(
                 format!(" /{} ", app.search_query),
-                Style::default().fg(Color::White),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                " (Press Enter to apply, Esc to cancel)",
+                " (Press Enter to set filter, Esc to clear & return)",
                 Style::default().fg(Color::DarkGray),
             ),
         ]),
         InputMode::Normal => {
-            let filter_display = if app.search_query.is_empty() {
-                "None".to_string()
-            } else {
-                app.search_query.clone()
-            };
-
-            Line::from(vec![
+            let mut spans = vec![
                 Span::styled(
                     " CH: ",
                     Style::default()
@@ -480,17 +536,43 @@ fn ui(f: &mut Frame, app: &mut App) {
                 ),
                 Span::raw(" "),
                 Span::styled(
-                    " SEARCH: ",
+                    " LVL: ",
                     Style::default()
                         .bg(Color::Magenta)
                         .fg(Color::White)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    format!(" {} ", filter_display),
-                    Style::default().bg(Color::Rgb(50, 50, 50)).fg(Color::White),
+                    format!(" {} ", app.level_filter.label()),
+                    Style::default()
+                        .bg(level_bg)
+                        .fg(level_fg)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(" "),
+            ];
+
+            if !app.search_query.is_empty() {
+                spans.extend(vec![
+                    Span::styled(
+                        " FIND: ",
+                        Style::default()
+                            .bg(Color::Yellow)
+                            .fg(Color::Black)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!(" {} ", app.search_query),
+                        Style::default()
+                            .bg(Color::Rgb(50, 50, 50))
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(" "),
+                ]);
+            }
+
+            spans.extend(vec![
                 Span::styled(
                     " SHOWN: ",
                     Style::default()
@@ -502,20 +584,57 @@ fn ui(f: &mut Frame, app: &mut App) {
                     format!(" {}/{} ", app.visible_count(), app.all_records.len()),
                     Style::default().bg(Color::Rgb(50, 50, 50)).fg(Color::White),
                 ),
-                Span::raw(" | "),
                 Span::styled(
-                    format!("CPU: {:.1}% | MEM: {}MB", cpu, mem),
+                    format!("  [CPU: {:.1}% | MEM: {}MB]", cpu, mem),
                     Style::default().fg(Color::Green),
                 ),
-                Span::raw(" | "),
-                Span::styled(
-                    "j/k:Nav g/G:Top/Bot /:Search Space:Pane q:Quit",
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ])
+            ]);
+
+            Line::from(spans)
         }
     };
 
-    let status_bar = Paragraph::new(status_line);
-    f.render_widget(status_bar, outer_chunks[1]);
+    let line2 = Line::from(vec![
+        Span::styled(
+            "NAV: ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("j/k", Style::default().fg(Color::White)),
+        Span::styled(" Up/Down  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("g/G", Style::default().fg(Color::White)),
+        Span::styled(" Top/Bot  ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            "FILTER: ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("1", Style::default().fg(Color::Red)),
+        Span::styled(" Err ", Style::default().fg(Color::DarkGray)),
+        Span::styled("2", Style::default().fg(Color::Yellow)),
+        Span::styled(" Warn ", Style::default().fg(Color::DarkGray)),
+        Span::styled("3", Style::default().fg(Color::Green)),
+        Span::styled(" Info ", Style::default().fg(Color::DarkGray)),
+        Span::styled("0", Style::default().fg(Color::White)),
+        Span::styled(" All  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("/", Style::default().fg(Color::Yellow)),
+        Span::styled(" Search  ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            "VIEW: ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("Space", Style::default().fg(Color::White)),
+        Span::styled(" Pane  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("Tab", Style::default().fg(Color::White)),
+        Span::styled(" XML/KV  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("q", Style::default().fg(Color::Red)),
+        Span::styled(" Quit", Style::default().fg(Color::DarkGray)),
+    ]);
+
+    let footer = Paragraph::new(vec![line1, line2]);
+    f.render_widget(footer, outer_chunks[1]);
 }

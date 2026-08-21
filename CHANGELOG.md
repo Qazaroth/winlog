@@ -11,6 +11,9 @@
 - Status bar showing some data implemented
 ([`8cc8cb7…`](https://github.com/Qazaroth/feckmania/commit/8cc8cb788c158675e75c2e593063b741f6957901))
 
+- Vim-style navigation implemented. :)
+([`90f540a…`](https://github.com/Qazaroth/feckmania/commit/90f540acbb6bd7d178017efde3efe7de0ce39f36))
+
 ## [0.4.0] - 2026-08-21
 
 ### 🚀 Features
