@@ -14,6 +14,9 @@
 - Vim-style navigation implemented. :)
 ([`90f540a…`](https://github.com/Qazaroth/feckmania/commit/90f540acbb6bd7d178017efde3efe7de0ce39f36))
 
+- Log-level toggles implemented
+([`2db7c08…`](https://github.com/Qazaroth/feckmania/commit/2db7c088ef78451566878d277d538367865d4e89))
+
 ## [0.4.0] - 2026-08-21
 
 ### 🚀 Features

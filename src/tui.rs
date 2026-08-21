@@ -1,18 +1,20 @@
 use anyhow::Result;
+use arboard::Clipboard;
 use crossterm::{
-    ExecutableCommand,
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    ExecutableCommand,
 };
 use ratatui::{
-    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Cell, HighlightSpacing, Paragraph, Row, Table, TableState, Wrap},
+    Frame, Terminal,
 };
 use std::io::stdout;
+use std::time::Instant;
 use sysinfo::{CpuRefreshKind, Pid, ProcessRefreshKind, RefreshKind, System};
 
 use crate::record::{EventLevel, EventRecord};
@@ -61,6 +63,8 @@ pub struct App {
     pub level_filter: ActiveLevelFilter,
     pub sys: System,
     pub pid: Pid,
+    pub status_message: Option<(String, Instant)>,
+    pub clipboard: Option<Clipboard>,
 }
 
 impl App {
@@ -84,6 +88,8 @@ impl App {
             ProcessRefreshKind::nothing().with_cpu().with_memory(),
         );
 
+        let clipboard = Clipboard::new().ok();
+
         Self {
             all_records: records,
             filtered_indices,
@@ -96,7 +102,13 @@ impl App {
             level_filter: ActiveLevelFilter::All,
             sys,
             pid,
+            status_message: None,
+            clipboard,
         }
+    }
+
+    pub fn set_status(&mut self, msg: String) {
+        self.status_message = Some((msg, Instant::now()));
     }
 
     pub fn visible_count(&self) -> usize {
@@ -160,6 +172,59 @@ impl App {
             self.level_filter = filter;
         }
         self.apply_filters();
+    }
+
+    pub fn copy_summary_to_clipboard(&mut self) {
+        let record = match self.selected_record() {
+            Some(r) => r.clone(),
+            None => return,
+        };
+
+        let timestamp = record
+            .timestamp
+            .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
+            .unwrap_or_else(|| "N/A".to_string());
+
+        let mut summary = format!(
+            "Event ID: {}\nProvider: {}\nLevel: {:?}\nTimestamp: {}\nComputer: {}\nChannel: {}\n\nPayload:\n",
+            record.event_id,
+            record.provider,
+            record.level,
+            timestamp,
+            record.computer,
+            record.channel
+        );
+
+        for (k, v) in &record.payload {
+            summary.push_str(&format!("  {}: {}\n", k, v));
+        }
+
+        if let Some(cb) = self.clipboard.as_mut() {
+            if cb.set_text(summary).is_ok() {
+                self.set_status(format!("Copied summary of Event ID {}!", record.event_id));
+            } else {
+                self.set_status("Failed to access system clipboard.".to_string());
+            }
+        } else {
+            self.set_status("Clipboard unavailable.".to_string());
+        }
+    }
+
+    pub fn copy_raw_xml_to_clipboard(&mut self) {
+        let record = match self.selected_record() {
+            Some(r) => r.clone(),
+            None => return,
+        };
+
+        if let Some(cb) = self.clipboard.as_mut() {
+            if cb.set_text(&record.raw_xml).is_ok() {
+                self.set_status(format!("Copied Raw XML of Event ID {}!", record.event_id));
+            } else {
+                self.set_status("Failed to access system clipboard.".to_string());
+            }
+        } else {
+            self.set_status("Clipboard unavailable.".to_string());
+        }
     }
 
     pub fn next(&mut self) {
@@ -281,12 +346,14 @@ fn main_loop(
                         InputMode::Normal => match key.code {
                             KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
                             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                                return Ok(());
+                                return Ok(())
                             }
                             KeyCode::Down | KeyCode::Char('j') => app.next(),
                             KeyCode::Up | KeyCode::Char('k') => app.previous(),
                             KeyCode::Char('g') => app.jump_first(),
                             KeyCode::Char('G') => app.jump_last(),
+                            KeyCode::Char('y') => app.copy_summary_to_clipboard(),
+                            KeyCode::Char('Y') => app.copy_raw_xml_to_clipboard(),
                             KeyCode::Char('/') => app.input_mode = InputMode::Search,
                             KeyCode::Char('1') => app.set_level_filter(ActiveLevelFilter::Error),
                             KeyCode::Char('2') => app.set_level_filter(ActiveLevelFilter::Warning),
@@ -325,7 +392,6 @@ fn main_loop(
 }
 
 fn ui(f: &mut Frame, app: &mut App) {
-    // Reserve 2 lines at the bottom: Line 1 for status badges, Line 2 for keybindings
     let outer_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0), Constraint::Length(2)])
@@ -584,11 +650,28 @@ fn ui(f: &mut Frame, app: &mut App) {
                     format!(" {}/{} ", app.visible_count(), app.all_records.len()),
                     Style::default().bg(Color::Rgb(50, 50, 50)).fg(Color::White),
                 ),
-                Span::styled(
-                    format!("  [CPU: {:.1}% | MEM: {}MB]", cpu, mem),
-                    Style::default().fg(Color::Green),
-                ),
             ]);
+
+            // Flash temporary status message if present (< 3 seconds)
+            if let Some((msg, time)) = &app.status_message {
+                if time.elapsed().as_secs() < 3 {
+                    spans.extend(vec![
+                        Span::raw(" "),
+                        Span::styled(
+                            format!(" [{}] ", msg),
+                            Style::default()
+                                .bg(Color::Green)
+                                .fg(Color::Black)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]);
+                }
+            }
+
+            spans.push(Span::styled(
+                format!("  [CPU: {:.1}% | MEM: {}MB]", cpu, mem),
+                Style::default().fg(Color::Green),
+            ));
 
             Line::from(spans)
         }
@@ -606,19 +689,23 @@ fn ui(f: &mut Frame, app: &mut App) {
         Span::styled("g/G", Style::default().fg(Color::White)),
         Span::styled(" Top/Bot  ", Style::default().fg(Color::DarkGray)),
         Span::styled(
+            "COPY: ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("y", Style::default().fg(Color::Green)),
+        Span::styled(" Summary  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("Y", Style::default().fg(Color::Green)),
+        Span::styled(" XML  ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
             "FILTER: ",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled("1", Style::default().fg(Color::Red)),
-        Span::styled(" Err ", Style::default().fg(Color::DarkGray)),
-        Span::styled("2", Style::default().fg(Color::Yellow)),
-        Span::styled(" Warn ", Style::default().fg(Color::DarkGray)),
-        Span::styled("3", Style::default().fg(Color::Green)),
-        Span::styled(" Info ", Style::default().fg(Color::DarkGray)),
-        Span::styled("0", Style::default().fg(Color::White)),
-        Span::styled(" All  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("1-3", Style::default().fg(Color::Yellow)),
+        Span::styled(" Lvl ", Style::default().fg(Color::DarkGray)),
         Span::styled("/", Style::default().fg(Color::Yellow)),
         Span::styled(" Search  ", Style::default().fg(Color::DarkGray)),
         Span::styled(
@@ -630,7 +717,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         Span::styled("Space", Style::default().fg(Color::White)),
         Span::styled(" Pane  ", Style::default().fg(Color::DarkGray)),
         Span::styled("Tab", Style::default().fg(Color::White)),
-        Span::styled(" XML/KV  ", Style::default().fg(Color::DarkGray)),
+        Span::styled(" Mode  ", Style::default().fg(Color::DarkGray)),
         Span::styled("q", Style::default().fg(Color::Red)),
         Span::styled(" Quit", Style::default().fg(Color::DarkGray)),
     ]);
@@ -638,3 +725,4 @@ fn ui(f: &mut Frame, app: &mut App) {
     let footer = Paragraph::new(vec![line1, line2]);
     f.render_widget(footer, outer_chunks[1]);
 }
+
