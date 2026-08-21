@@ -84,9 +84,9 @@ ightarrow$ "Access Denied").
 
 ## 🚩 Phase 5: Plugin Architecture & Advanced Features
 
-- [ ] **Remote Event Log Querying:** Query remote Windows machines via WinRM / WMI protocols.
-- [ ] **Custom Event Provider Schema Extensions:** Support dynamic schema loading for third-party application logs.
-- [ ] **Plugin System:** Allow external Rust crates or WASM modules to define custom event processors and alerting outputs.
+- [x] ~~**Remote Event Log Querying:** Query remote Windows machines via WinRM / WMI protocols.~~ (Deferred / Out of Scope)
+- [x] ~~**Custom Event Provider Schema Extensions:** Support dynamic schema loading for third-party application logs.~~ (Deferred / Out of Scope—handled natively by system-registered manifests)
+- [x] ~~**Plugin System:** Allow external Rust crates or WASM modules to define custom event processors and alerting outputs.~~
 
 ---
 

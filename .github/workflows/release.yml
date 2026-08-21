@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
 
     steps:
       - name: Checkout repository
@@ -18,15 +18,28 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Create release zip archive
+        shell: powershell
+        run: |
+          $version = "${{ github.ref_name }}"
+          Compress-Archive -Path "target\release\winlog.exe" -DestinationPath "winlog-$version-x86_64-pc-windows-msvc.zip"
+
       - name: Install git-cliff
         run: cargo install git-cliff
 
       - name: Generate release notes
         shell: bash
         run: |
-            git-cliff -c cliff.toml --latest > RELEASE_NOTES.md
+          git-cliff -c cliff.toml --latest > RELEASE_NOTES.md
 
       - name: Show generated release notes
+        shell: bash
         run: |
           echo "===== RELEASE_NOTES.md ====="
           cat RELEASE_NOTES.md
@@ -38,6 +51,7 @@ jobs:
           body_path: RELEASE_NOTES.md
           overwrite: true
           files: |
+            winlog-*.zip
             LICENSE
             README.md
         env:
@@ -45,4 +59,5 @@ jobs:
 
       - name: Clean up
         if: always()
+        shell: bash
         run: rm -f RELEASE_NOTES.md

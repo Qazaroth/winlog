@@ -1,4 +1,4 @@
-## [unreleased]
+## [0.6.0] - 2026-08-21
 
 ### 🚀 Features
 
@@ -16,6 +16,9 @@
 
 - User is able to specify what preset to use
 ([`344cf87…`](https://github.com/Qazaroth/feckmania/commit/344cf8716d05bf7141ebc03b8a601280bd8ce075))
+
+- Built-in audit presets implemented
+([`d72b019…`](https://github.com/Qazaroth/feckmania/commit/d72b019e41bafcd673a82ca7f9761e4b33dfb347))
 
 
 ### 📚 Documentation
