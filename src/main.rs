@@ -29,37 +29,33 @@ fn resolve_preset_or_channel(
     let default_path = Path::new("presets.yaml");
     let target_path = preset_file.map(|p| p.as_path()).unwrap_or(default_path);
 
+    // 1. Try loading from explicit or local custom presets file
     if target_path.exists() {
-        match PresetsConfig::load_from_file(target_path) {
-            Ok(config) => {
-                if let Some(preset) = config.get_preset(channel_or_preset) {
-                    println!(
-                        "{} Using preset '{}' ({}) from {}",
-                        "★".yellow().bold(),
-                        preset.name.cyan(),
-                        channel_or_preset.bold(),
-                        target_path.display().to_string().dimmed()
-                    );
-                    return (preset.channel.clone(), Some(preset.limit));
-                }
-            }
-            Err(err) => {
-                if preset_file.is_some() {
-                    eprintln!(
-                        "{} Failed to load config at {}: {}",
-                        "⚠".red().bold(),
-                        target_path.display(),
-                        err
-                    );
-                }
+        if let Ok(config) = PresetsConfig::load_from_file(target_path) {
+            if let Some(preset) = config.get_preset(channel_or_preset) {
+                println!(
+                    "{} Using preset '{}' ({}) from {}",
+                    "★".yellow().bold(),
+                    preset.name.cyan(),
+                    channel_or_preset.bold(),
+                    target_path.display().to_string().dimmed()
+                );
+                return (preset.channel.clone(), Some(preset.limit));
             }
         }
-    } else if let Some(explicit_path) = preset_file {
-        eprintln!(
-            "{} Specified config file not found: {}",
-            "⚠".red().bold(),
-            explicit_path.display()
-        );
+    }
+
+    // 2. Fallback to built-in presets compiled into the binary
+    if let Ok(builtin_config) = PresetsConfig::load_embedded_defaults() {
+        if let Some(preset) = builtin_config.get_preset(channel_or_preset) {
+            println!(
+                "{} Using built-in preset '{}' ({})",
+                "★".yellow().bold(),
+                preset.name.cyan(),
+                channel_or_preset.bold()
+            );
+            return (preset.channel.clone(), Some(preset.limit));
+        }
     }
 
     (channel_or_preset.to_string(), None)

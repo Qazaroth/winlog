@@ -73,9 +73,9 @@ ightarrow$ "Successful Logon").
   - [x] Automatically translate common HRESULT / NTSTATUS hex error codes (`0x80070005` $
 ightarrow$ "Access Denied").
   - [x] Provide quick lookup links to Microsoft Documentation / Sysmon references.
-- [ ] **Rule & Filter Presets:**
+- [x] **Rule & Filter Presets:**
   - [x] Support custom YAML/TOML preset configurations.
-  - [ ] Ship with built-in audit presets:
+  - [x] Ship with built-in audit presets:
     - `security-audit`: Highlights failed logons, account lockouts, privilege escalations.
     - `system-errors`: Filters driver crashes, service failures, disk warnings.
     - `network-activity`: Aggregates firewall drops and connection events.

@@ -1,0 +1,18 @@
+presets:
+  security-audit:
+    name: "Security Audit"
+    channel: "Security"
+    limit: 500
+    query: "*[System[(EventID=4625 or EventID=4740 or EventID=4672 or EventID=4720 or EventID=4728 or EventID=4732)]]"
+
+  system-errors:
+    name: "System Errors & Diagnostics"
+    channel: "System"
+    limit: 200
+    query: "*[System[(Level=1 or Level=2 or EventID=7023 or EventID=7034 or EventID=41 or EventID=55)]]"
+
+  network-activity:
+    name: "Network & Firewall Activity"
+    channel: "Microsoft-Windows-Windows Firewall With Advanced Security/Firewall"
+    limit: 300
+    query: "*[System[(EventID=2004 or EventID=2005 or EventID=2006 or EventID=5152 or EventID=5157)]]"

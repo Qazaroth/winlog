@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+const DEFAULT_PRESETS_YAML: &str = include_str!("../default_presets.yaml");
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Preset {
     pub name: String,
@@ -24,6 +26,12 @@ pub struct PresetsConfig {
 }
 
 impl PresetsConfig {
+    /// Load presets from embedded default YAML content.
+    pub fn load_embedded_defaults() -> Result<Self> {
+        serde_yaml::from_str(DEFAULT_PRESETS_YAML)
+            .context("Failed to parse embedded default presets")
+    }
+
     /// Load presets from YAML file path
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();

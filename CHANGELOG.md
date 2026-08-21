@@ -14,6 +14,9 @@
 - Custom YAML preset config support implemented
 ([`26a8cbd…`](https://github.com/Qazaroth/feckmania/commit/26a8cbdc899dedb6b001068ffc3f55c161e9768e))
 
+- User is able to specify what preset to use
+([`344cf87…`](https://github.com/Qazaroth/feckmania/commit/344cf8716d05bf7141ebc03b8a601280bd8ce075))
+
 
 ### 📚 Documentation
 
