@@ -1,0 +1,17 @@
+presets:
+  sysmon_process:
+    name: "Sysmon Process Creation"
+    channel: "Microsoft-Windows-Sysmon/Operational"
+    limit: 500
+    query: "*[System[(EventID=1)]]"
+
+  security_logins:
+    name: "Failed Logon Attempts"
+    channel: "Security"
+    limit: 200
+    query: "*[System[(EventID=4625)]]"
+
+  system_errors:
+    name: "System Errors & Warnings"
+    channel: "System"
+    limit: 100

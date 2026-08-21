@@ -1,13 +1,14 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use colored::*;
 use csv::WriterBuilder;
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use winlog::cli::{Cli, Commands, OutputFormat};
+use winlog::config::PresetsConfig;
 use winlog::record::EventRecord;
 use winlog::win_api::{EventLogQuery, EventLogSubscription};
 
@@ -19,6 +20,30 @@ fn create_writer(output_path: Option<&PathBuf>) -> Result<Box<dyn Write>> {
         }
         None => Ok(Box::new(io::stdout())),
     }
+}
+
+fn resolve_preset_or_channel(
+    channel_or_preset: &str,
+    preset_file: Option<&PathBuf>,
+) -> (String, Option<u32>) {
+    let default_path = Path::new("presets.yaml");
+    let target_path = preset_file.map(|p| p.as_path()).unwrap_or(default_path);
+
+    if target_path.exists() {
+        if let Ok(config) = PresetsConfig::load_from_file(target_path) {
+            if let Some(preset) = config.get_preset(channel_or_preset) {
+                println!(
+                    "{} Using preset '{}' ({})",
+                    "★".yellow().bold(),
+                    preset.name.cyan(),
+                    channel_or_preset.bold()
+                );
+                return (preset.channel.clone(), Some(preset.limit));
+            }
+        }
+    }
+
+    (channel_or_preset.to_string(), None)
 }
 
 fn run_static_query(
@@ -185,19 +210,25 @@ fn main() -> Result<()> {
 
     match &cli.command {
         Some(Commands::Tui { channel, limit }) => {
-            winlog::tui::run_tui(channel, *limit)?;
+            let (target_channel, preset_limit) = resolve_preset_or_channel(channel, None);
+            let final_limit = preset_limit.unwrap_or(*limit);
+            winlog::tui::run_tui(&target_channel, final_limit)?;
         }
         Some(
             cmd @ Commands::Tail {
                 channel, output, ..
             },
         ) => {
-            run_tail_stream(channel, cmd.resolved_tail_format(), output.as_ref())?;
+            let (target_channel, _) = resolve_preset_or_channel(channel, None);
+            run_tail_stream(&target_channel, cmd.resolved_tail_format(), output.as_ref())?;
         }
         None => {
+            let (target_channel, preset_limit) = resolve_preset_or_channel(&cli.channel, None);
+            let final_limit = preset_limit.unwrap_or(cli.limit);
+
             run_static_query(
-                &cli.channel,
-                cli.limit,
+                &target_channel,
+                final_limit,
                 cli.resolved_format(),
                 cli.output.as_ref(),
             )?;

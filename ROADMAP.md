@@ -74,7 +74,7 @@ ightarrow$ "Successful Logon").
 ightarrow$ "Access Denied").
   - [x] Provide quick lookup links to Microsoft Documentation / Sysmon references.
 - [ ] **Rule & Filter Presets:**
-  - [ ] Support custom YAML/TOML preset configurations.
+  - [x] Support custom YAML/TOML preset configurations.
   - [ ] Ship with built-in audit presets:
     - `security-audit`: Highlights failed logons, account lockouts, privilege escalations.
     - `system-errors`: Filters driver crashes, service failures, disk warnings.
