@@ -1,8 +1,9 @@
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use colored::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EventLevel {
     Critical,
     Error,
@@ -25,7 +26,7 @@ impl From<u8> for EventLevel {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventRecord {
     pub event_id: u32,
     pub provider: String,
@@ -36,6 +37,8 @@ pub struct EventRecord {
     pub process_id: Option<u32>,
     pub thread_id: Option<u32>,
     pub payload: Vec<(String, String)>,
+
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub raw_xml: String,
 }
 

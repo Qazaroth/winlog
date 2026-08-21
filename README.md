@@ -19,9 +19,9 @@ The default Windows Event Viewer (`eventvwr.msc`) has been a source of frustrati
 
 - [ ] **🚀 Blazing Fast TUI:** Responsive split-pane terminal user interface powered by [`ratatui`](https://github.com/ratatui-org/ratatui).
 - [ ] **⚡ Sub-Millisecond Search:** Instant fuzzy filtering (`fzf`-style) and regex search across log channels.
-- [ ] **📡 Live Tail Streaming:** Real-time log monitoring (`tail -f` equivalent) for active Windows channels (`System`, `Security`, `Application`).
+- [x] **📡 Live Tail Streaming:** Real-time log monitoring (`tail -f` equivalent) for active Windows channels (`System`, `Security`, `Application`).
 - [ ] **🧠 Human-Readable Context:** Automatic translation of obscure Event IDs and hex error codes into plain-English explanations.
-- [ ] **📤 Structured Export:** Clean JSON/NDJSON output for seamless integration with terminal pipelines (`| jq`).
+- [x] **📤 Structured Export:** Clean JSON/NDJSON output for seamless integration with terminal pipelines (`| jq`).
 - [ ] **🎯 Filter Presets:** Pre-packaged YAML/TOML presets for quick security auditing and troubleshooting.
 
 ---
