@@ -1,17 +1,21 @@
 use anyhow::Result;
 use arboard::Clipboard;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
+use nucleo_matcher::{
+    Config, Matcher, Utf32Str,
+    pattern::{Atom, AtomKind, CaseMatching, Normalization},
 };
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Cell, HighlightSpacing, Paragraph, Row, Table, TableState, Wrap},
-    Frame, Terminal,
 };
 use std::io::stdout;
 use std::time::Instant;
@@ -65,6 +69,7 @@ pub struct App {
     pub pid: Pid,
     pub status_message: Option<(String, Instant)>,
     pub clipboard: Option<Clipboard>,
+    pub matcher: Matcher,
 }
 
 impl App {
@@ -104,6 +109,7 @@ impl App {
             pid,
             status_message: None,
             clipboard,
+            matcher: Matcher::new(Config::DEFAULT),
         }
     }
 
@@ -123,40 +129,86 @@ impl App {
     }
 
     pub fn apply_filters(&mut self) {
-        let query = self.search_query.to_lowercase();
-        let query_empty = query.trim().is_empty();
+        let query_trimmed = self.search_query.trim();
 
-        self.filtered_indices = self
-            .all_records
-            .iter()
-            .enumerate()
-            .filter(|(_, r)| {
-                let level_matches = match self.level_filter {
-                    ActiveLevelFilter::All => true,
-                    ActiveLevelFilter::Error => {
-                        matches!(r.level, EventLevel::Error | EventLevel::Critical)
+        let atom = if !query_trimmed.is_empty() {
+            Some(Atom::new(
+                query_trimmed,
+                CaseMatching::Ignore,
+                Normalization::Smart,
+                AtomKind::Fuzzy,
+                false,
+            ))
+        } else {
+            None
+        };
+
+        let mut scored_indices: Vec<(usize, u32)> = Vec::with_capacity(self.all_records.len());
+
+        for (idx, record) in self.all_records.iter().enumerate() {
+            // 1. Level Filter
+            let level_matches = match self.level_filter {
+                ActiveLevelFilter::All => true,
+                ActiveLevelFilter::Error => {
+                    matches!(record.level, EventLevel::Error | EventLevel::Critical)
+                }
+                ActiveLevelFilter::Warning => matches!(record.level, EventLevel::Warning),
+                ActiveLevelFilter::Information => matches!(record.level, EventLevel::Information),
+            };
+
+            if !level_matches {
+                continue;
+            }
+
+            // 2. Fuzzy Matcher
+            if let Some(ref atom_pattern) = atom {
+                let mut max_score: u32 = 0;
+                let mut buf = Vec::new();
+
+                // Generate searchable fields for the record
+                let payload_text = record
+                    .payload
+                    .iter()
+                    .map(|(k, v)| format!("{} {}", k, v))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+
+                let searchable_targets = [&record.provider, &record.computer, &payload_text];
+
+                for target in searchable_targets {
+                    let utf32_target = Utf32Str::new(target, &mut buf);
+                    if let Some(score) = atom_pattern.score(utf32_target, &mut self.matcher) {
+                        let score_val = score as u32;
+                        if score_val > max_score {
+                            max_score = score_val;
+                        }
                     }
-                    ActiveLevelFilter::Warning => matches!(r.level, EventLevel::Warning),
-                    ActiveLevelFilter::Information => matches!(r.level, EventLevel::Information),
-                };
-
-                if !level_matches {
-                    return false;
                 }
 
-                if query_empty {
-                    true
-                } else {
-                    r.provider.to_lowercase().contains(&query)
-                        || r.event_id.to_string().contains(&query)
-                        || r.computer.to_lowercase().contains(&query)
-                        || r.payload.iter().any(|(k, v)| {
-                            k.to_lowercase().contains(&query) || v.to_lowercase().contains(&query)
-                        })
+                // Also check event ID exact match bonus
+                let event_id_str = record.event_id.to_string();
+                let utf32_id = Utf32Str::new(&event_id_str, &mut buf);
+                if let Some(score) = atom_pattern.score(utf32_id, &mut self.matcher) {
+                    let score_val = score as u32 + 50; // Boost ID matching
+                    if score_val > max_score {
+                        max_score = score_val;
+                    }
                 }
-            })
-            .map(|(i, _)| i)
-            .collect();
+
+                if max_score > 0 {
+                    scored_indices.push((idx, max_score));
+                }
+            } else {
+                scored_indices.push((idx, 0));
+            }
+        }
+
+        // Sort descending by fuzzy score when search term is provided
+        if atom.is_some() {
+            scored_indices.sort_by(|a, b| b.1.cmp(&a.1));
+        }
+
+        self.filtered_indices = scored_indices.into_iter().map(|(idx, _)| idx).collect();
 
         if self.visible_count() > 0 {
             self.table_state.select(Some(0));
@@ -346,7 +398,7 @@ fn main_loop(
                         InputMode::Normal => match key.code {
                             KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
                             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                                return Ok(())
+                                return Ok(());
                             }
                             KeyCode::Down | KeyCode::Char('j') => app.next(),
                             KeyCode::Up | KeyCode::Char('k') => app.previous(),
@@ -570,7 +622,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     let line1 = match app.input_mode {
         InputMode::Search => Line::from(vec![
             Span::styled(
-                " SEARCH MODE ",
+                " FUZZY SEARCH ",
                 Style::default()
                     .bg(Color::Yellow)
                     .fg(Color::Black)
@@ -583,7 +635,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                " (Press Enter to set filter, Esc to clear & return)",
+                " (Press Enter to confirm filter, Esc to clear)",
                 Style::default().fg(Color::DarkGray),
             ),
         ]),
@@ -621,7 +673,7 @@ fn ui(f: &mut Frame, app: &mut App) {
             if !app.search_query.is_empty() {
                 spans.extend(vec![
                     Span::styled(
-                        " FIND: ",
+                        " FZF: ",
                         Style::default()
                             .bg(Color::Yellow)
                             .fg(Color::Black)
@@ -652,7 +704,6 @@ fn ui(f: &mut Frame, app: &mut App) {
                 ),
             ]);
 
-            // Flash temporary status message if present (< 3 seconds)
             if let Some((msg, time)) = &app.status_message {
                 if time.elapsed().as_secs() < 3 {
                     spans.extend(vec![
@@ -707,7 +758,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         Span::styled("1-3", Style::default().fg(Color::Yellow)),
         Span::styled(" Lvl ", Style::default().fg(Color::DarkGray)),
         Span::styled("/", Style::default().fg(Color::Yellow)),
-        Span::styled(" Search  ", Style::default().fg(Color::DarkGray)),
+        Span::styled(" Fuzzy  ", Style::default().fg(Color::DarkGray)),
         Span::styled(
             "VIEW: ",
             Style::default()
@@ -725,4 +776,3 @@ fn ui(f: &mut Frame, app: &mut App) {
     let footer = Paragraph::new(vec![line1, line2]);
     f.render_widget(footer, outer_chunks[1]);
 }
-
