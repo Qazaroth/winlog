@@ -1,9 +1,18 @@
-## [unreleased]
+## [0.4.0] - 2026-08-21
 
 ### 🚀 Features
 
 - Asynchronous streaming subscriber implemented using 'EvtSubscribe'
 ([`6372fee…`](https://github.com/Qazaroth/feckmania/commit/6372fee281324abd679091684b5ec3b9e457bccd))
+
+- Live auto-scrolling terminal output implemented.
+([`985b6e8…`](https://github.com/Qazaroth/feckmania/commit/985b6e8ab42d60b2c22ebe89e3830b7eebf85194))
+
+- JSON and NDJSON output implemented along with stdout piping
+([`37cf2c2…`](https://github.com/Qazaroth/feckmania/commit/37cf2c2f10e0b679c26c785a7000e2c2aca8d179))
+
+- Filtered queries can now be exported into files
+([`e4080b4…`](https://github.com/Qazaroth/feckmania/commit/e4080b48a8bcd824deb6c69f0e3c882a3c073a51))
 
 ## [0.3.0] - 2026-08-20
 

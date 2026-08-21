@@ -75,6 +75,16 @@ impl Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
+    /// Launch interactive Terminal User Interface (TUI)
+    Tui {
+        /// Target live event channel or .evtx log file
+        #[arg(short, long, default_value = "System")]
+        channel: String,
+
+        /// Initial maximum events to pre-load
+        #[arg(short, long, default_value_t = 500)]
+        limit: u32,
+    },
     /// Live stream events as they occur in real time
     Tail {
         /// Target live event channel (e.g., System, Security, Application)
@@ -102,6 +112,7 @@ pub enum Commands {
 impl Commands {
     pub fn resolved_tail_format(&self) -> OutputFormat {
         match self {
+            Commands::Tui { .. } => OutputFormat::Text,
             Commands::Tail {
                 format,
                 json,

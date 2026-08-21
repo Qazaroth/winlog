@@ -184,6 +184,9 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
+        Some(Commands::Tui { channel, limit }) => {
+            winlog::tui::run_tui(channel, *limit)?;
+        }
         Some(
             cmd @ Commands::Tail {
                 channel, output, ..
