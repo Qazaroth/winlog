@@ -8,6 +8,12 @@
 - Common hex error codes translated to be human readable
 ([`276c7f6…`](https://github.com/Qazaroth/feckmania/commit/276c7f61d821f711fe86c521aa652ff385ca216f))
 
+- Quick lookup links to Microsoft Docs or Sysmon ref implemented
+([`a5fb27b…`](https://github.com/Qazaroth/feckmania/commit/a5fb27be51fb15f58b99cff6116032a57b03d02c))
+
+- Custom YAML preset config support implemented
+([`26a8cbd…`](https://github.com/Qazaroth/feckmania/commit/26a8cbdc899dedb6b001068ffc3f55c161e9768e))
+
 
 ### 📚 Documentation
 

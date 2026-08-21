@@ -27,6 +27,10 @@ pub struct Cli {
     #[arg(short, long, default_value = "System")]
     pub channel: String,
 
+    /// Path to a custom YAML presets configuration file
+    #[arg(short = 'C', long, global = true)]
+    pub config: Option<PathBuf>,
+
     /// Maximum number of events to fetch
     #[arg(short, long, default_value_t = 5)]
     pub limit: u32,

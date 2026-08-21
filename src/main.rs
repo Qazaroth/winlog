@@ -30,17 +30,36 @@ fn resolve_preset_or_channel(
     let target_path = preset_file.map(|p| p.as_path()).unwrap_or(default_path);
 
     if target_path.exists() {
-        if let Ok(config) = PresetsConfig::load_from_file(target_path) {
-            if let Some(preset) = config.get_preset(channel_or_preset) {
-                println!(
-                    "{} Using preset '{}' ({})",
-                    "★".yellow().bold(),
-                    preset.name.cyan(),
-                    channel_or_preset.bold()
-                );
-                return (preset.channel.clone(), Some(preset.limit));
+        match PresetsConfig::load_from_file(target_path) {
+            Ok(config) => {
+                if let Some(preset) = config.get_preset(channel_or_preset) {
+                    println!(
+                        "{} Using preset '{}' ({}) from {}",
+                        "★".yellow().bold(),
+                        preset.name.cyan(),
+                        channel_or_preset.bold(),
+                        target_path.display().to_string().dimmed()
+                    );
+                    return (preset.channel.clone(), Some(preset.limit));
+                }
+            }
+            Err(err) => {
+                if preset_file.is_some() {
+                    eprintln!(
+                        "{} Failed to load config at {}: {}",
+                        "⚠".red().bold(),
+                        target_path.display(),
+                        err
+                    );
+                }
             }
         }
+    } else if let Some(explicit_path) = preset_file {
+        eprintln!(
+            "{} Specified config file not found: {}",
+            "⚠".red().bold(),
+            explicit_path.display()
+        );
     }
 
     (channel_or_preset.to_string(), None)
@@ -210,7 +229,8 @@ fn main() -> Result<()> {
 
     match &cli.command {
         Some(Commands::Tui { channel, limit }) => {
-            let (target_channel, preset_limit) = resolve_preset_or_channel(channel, None);
+            let (target_channel, preset_limit) =
+                resolve_preset_or_channel(channel, cli.config.as_ref());
             let final_limit = preset_limit.unwrap_or(*limit);
             winlog::tui::run_tui(&target_channel, final_limit)?;
         }
@@ -219,11 +239,12 @@ fn main() -> Result<()> {
                 channel, output, ..
             },
         ) => {
-            let (target_channel, _) = resolve_preset_or_channel(channel, None);
+            let (target_channel, _) = resolve_preset_or_channel(channel, cli.config.as_ref());
             run_tail_stream(&target_channel, cmd.resolved_tail_format(), output.as_ref())?;
         }
         None => {
-            let (target_channel, preset_limit) = resolve_preset_or_channel(&cli.channel, None);
+            let (target_channel, preset_limit) =
+                resolve_preset_or_channel(&cli.channel, cli.config.as_ref());
             let final_limit = preset_limit.unwrap_or(cli.limit);
 
             run_static_query(
