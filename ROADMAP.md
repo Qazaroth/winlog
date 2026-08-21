@@ -70,7 +70,7 @@ Focus on making raw Windows logs actionable and context-rich.
 - [ ] **Context & Lookup Engine:**
   - [x] Embed human-readable description dictionary for top 100+ Windows Event IDs (e.g., Event 4624 $
 ightarrow$ "Successful Logon").
-  - [ ] Automatically translate common HRESULT / NTSTATUS hex error codes (`0x80070005` $
+  - [x] Automatically translate common HRESULT / NTSTATUS hex error codes (`0x80070005` $
 ightarrow$ "Access Denied").
   - [ ] Provide quick lookup links to Microsoft Documentation / Sysmon references.
 - [ ] **Rule & Filter Presets:**

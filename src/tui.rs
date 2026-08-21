@@ -1,3 +1,4 @@
+use crate::error_db::parse_win32_error;
 use crate::event_db::{EventMetadata, get_event_db};
 use anyhow::Result;
 use arboard::Clipboard;
@@ -752,13 +753,30 @@ fn ui(f: &mut Frame, app: &mut App) {
                         )));
                     } else {
                         for (key, val) in &record.payload {
-                            lines.push(Line::from(vec![
+                            let mut param_spans = vec![
                                 Span::styled(
                                     format!("  {}: ", key),
                                     Style::default().fg(Color::Cyan),
                                 ),
                                 Span::raw(val),
-                            ]));
+                            ];
+
+                            // Detect hex error codes in parameter values
+                            if val.starts_with("0x") || val.starts_with("0X") {
+                                if let Ok(code) = u32::from_str_radix(
+                                    val.trim_start_matches("0x").trim_start_matches("0X"),
+                                    16,
+                                ) {
+                                    if let Some(err_msg) = parse_win32_error(code) {
+                                        param_spans.push(Span::styled(
+                                            format!(" ({})", err_msg),
+                                            Style::default().fg(Color::LightRed),
+                                        ));
+                                    }
+                                }
+                            }
+
+                            lines.push(Line::from(param_spans));
                         }
                     }
                     lines
