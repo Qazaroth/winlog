@@ -38,10 +38,10 @@ Focus on real-time log monitoring and integration with terminal pipelines.
 - [x] **Live Tail Engine:**
   - [x] Implement asynchronous streaming subscriber using `EvtSubscribe`.
   - [x] Support live auto-scrolling terminal output (`winlog tail -c System`).
-- [ ] **Structured Exports:**
+- [x] **Structured Exports:**
   - [x] Add JSON (`--json`) and NDJSON (`--ndjson`) output modes.
   - [x] Support direct stdout piping (`winlog --json | jq '.'`).
-  - [ ] Export filtered queries to `.csv` and `.json` files.
+  - [x] Export filtered queries to `.csv` and `.json` files.
 
 ---
 

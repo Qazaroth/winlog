@@ -1,7 +1,9 @@
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use colored::*;
+use csv::Writer;
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EventLevel {
@@ -43,6 +45,50 @@ pub struct EventRecord {
 }
 
 impl EventRecord {
+    /// Serializes the record into CSV format.
+    pub fn write_csv_row<W: Write>(&self, wtr: &mut Writer<W>) -> anyhow::Result<()> {
+        let timestamp_str = self.timestamp.map(|t| t.to_rfc3339()).unwrap_or_default();
+        let payload_str = self
+            .payload
+            .iter()
+            .map(|(k, v)| format!("{}: {}", k, v))
+            .collect::<Vec<_>>()
+            .join("; ");
+
+        wtr.write_record(&[
+            self.event_id.to_string(),
+            format!("{:?}", self.level),
+            self.provider.clone(),
+            self.channel.clone(),
+            timestamp_str,
+            self.computer.clone(),
+            self.process_id.map(|p| p.to_string()).unwrap_or_default(),
+            self.thread_id.map(|t| t.to_string()).unwrap_or_default(),
+            payload_str,
+        ])?;
+
+        wtr.flush()?;
+
+        Ok(())
+    }
+
+    /// Writes CSV header line
+    pub fn write_csv_header<W: Write>(wtr: &mut Writer<W>) -> anyhow::Result<()> {
+        wtr.write_record(&[
+            "EventID",
+            "Level",
+            "Provider",
+            "Channel",
+            "Timestamp",
+            "Computer",
+            "ProcessID",
+            "ThreadID",
+            "Payload",
+        ])?;
+        wtr.flush()?;
+        Ok(())
+    }
+
     pub fn colored_level_str(&self) -> ColoredString {
         match self.level {
             EventLevel::Critical => "CRITICAL".red().bold().reversed(),

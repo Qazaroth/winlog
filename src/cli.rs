@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
+use std::path::PathBuf;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
 pub enum OutputFormat {
@@ -6,6 +7,7 @@ pub enum OutputFormat {
     Xml,
     Json,
     Ndjson,
+    Csv,
 }
 
 /// A fast, modern CLI and TUI alternative to Windows Event Viewer.
@@ -40,6 +42,10 @@ pub struct Cli {
     /// Shortcut for NDJSON (newline-delimited JSON) output mode
     #[arg(long)]
     pub ndjson: bool,
+
+    /// Save output directly to a file (.json, .csv, .xml, .txt)
+    #[arg(short, long, global = true)]
+    pub output: Option<PathBuf>,
 }
 
 impl Cli {
@@ -49,6 +55,18 @@ impl Cli {
             OutputFormat::Ndjson
         } else if self.json {
             OutputFormat::Json
+        } else if let Some(path) = &self.output {
+            if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                match ext.to_lowercase().as_str() {
+                    "csv" => OutputFormat::Csv,
+                    "json" => OutputFormat::Json,
+                    "ndjson" => OutputFormat::Ndjson,
+                    "xml" => OutputFormat::Xml,
+                    _ => self.format,
+                }
+            } else {
+                self.format
+            }
         } else {
             self.format
         }
@@ -74,6 +92,10 @@ pub enum Commands {
         /// Shortcut for NDJSON output mode
         #[arg(long)]
         ndjson: bool,
+
+        /// Save streamed logs to a file
+        #[arg(short, long)]
+        output: Option<PathBuf>,
     },
 }
 
@@ -84,12 +106,25 @@ impl Commands {
                 format,
                 json,
                 ndjson,
+                output,
                 ..
             } => {
                 if *ndjson {
                     OutputFormat::Ndjson
                 } else if *json {
                     OutputFormat::Json
+                } else if let Some(path) = output {
+                    if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                        match ext.to_lowercase().as_str() {
+                            "csv" => OutputFormat::Csv,
+                            "json" => OutputFormat::Json,
+                            "ndjson" => OutputFormat::Ndjson,
+                            "xml" => OutputFormat::Xml,
+                            _ => *format,
+                        }
+                    } else {
+                        *format
+                    }
                 } else {
                     *format
                 }
