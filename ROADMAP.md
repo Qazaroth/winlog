@@ -82,12 +82,23 @@ ightarrow$ "Access Denied").
 
 ---
 
-## 🚩 Phase 5: Plugin Architecture & Advanced Features
+## 🚩 Phase 5: Detection, Analytics & Output Integrations
 
-- [x] ~~**Remote Event Log Querying:** Query remote Windows machines via WinRM / WMI protocols.~~ (Deferred / Out of Scope)
-- [x] ~~**Custom Event Provider Schema Extensions:** Support dynamic schema loading for third-party application logs.~~ (Deferred / Out of Scope—handled natively by system-registered manifests)
-- [x] ~~**Plugin System:** Allow external Rust crates or WASM modules to define custom event processors and alerting outputs.~~
+- [ ] **Real-Time Sigma Rule Detection Engine**
+  - [ ] Parse standard YAML Sigma detection rules into native XPath and memory-matched conditions.
+  - [ ] Trigger live desktop notifications (`notify-rust`) or execute hook scripts upon rule matches during `tail` operations.
 
+- [ ] **Log Anomaly & Threat Detection (Heuristics)**
+  - [ ] **Spike Detection:** Track event volume frequency anomalies per provider/channel using sliding window counters.
+  - [ ] **Privilege Escalation & Lateral Movement Scans:** Built-in heuristics for suspicious activity (e.g., rapid failed logins, Event 4624/4625 brute force patterns, or process creation spikes under Event 4688/Sysmon 1).
+
+- [ ] **Advanced Export & SIEM Integrations**
+  - [ ] **Syslog / CEF Forwarding:** Directly forward events over UDP/TCP/TLS to external SIEMs (Splunk, Elastic, Sentinel).
+  - [ ] **SQLite / DuckDB Sinks:** Persist query results into embedded database files for fast offline SQL analytics.
+
+- [ ] **TUI Forensic Workbench Enhancements**
+  - [ ] **Timeline View:** Visual representation of event density over time using ASCII bar charts.
+  - [ ] **Diff Mode:** Compare two `.evtx` files or snapshot ranges to surface newly generated events during incident response.
 ---
 
 ## 🤝 How to Pick Up a Task

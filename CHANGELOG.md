@@ -1,3 +1,10 @@
+## [unreleased]
+
+### ⚙️ Continuous Integration
+
+- Updated release.yml to hopefully generate executables
+([`cc92489…`](https://github.com/Qazaroth/feckmania/commit/cc924891d1827292f6e2bbb4db04eb4809556935))
+
 ## [0.6.0] - 2026-08-21
 
 ### 🚀 Features
