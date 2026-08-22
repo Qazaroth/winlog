@@ -84,9 +84,9 @@ ightarrow$ "Access Denied").
 
 ## 🚩 Phase 5: Detection, Analytics & Output Integrations
 
-- [ ] **Real-Time Sigma Rule Detection Engine**
+- [x] **Real-Time Sigma Rule Detection Engine**
   - [x] Parse standard YAML Sigma detection rules into native XPath and memory-matched conditions.
-  - [ ] Trigger live desktop notifications (`notify-rust`) or execute hook scripts upon rule matches during `tail` operations.
+  - [x] Trigger live desktop notifications (`notify-rust`) or execute hook scripts upon rule matches during `tail` operations.
 
 - [ ] **Log Anomaly & Threat Detection (Heuristics)**
   - [ ] **Spike Detection:** Track event volume frequency anomalies per provider/channel using sliding window counters.

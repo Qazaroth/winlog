@@ -2,14 +2,18 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use colored::*;
 use csv::WriterBuilder;
-use std::fs::File;
+use notify_rust::Notification;
+use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+
 use winlog::cli::{Cli, Commands, OutputFormat};
 use winlog::config::PresetsConfig;
 use winlog::record::EventRecord;
+use winlog::sigma::{SigmaEngine, SigmaRule};
 use winlog::win_api::{EventLogQuery, EventLogSubscription};
 
 fn create_writer(output_path: Option<&PathBuf>) -> Result<Box<dyn Write>> {
@@ -29,7 +33,6 @@ fn resolve_preset_or_channel(
     let default_path = Path::new("presets.yaml");
     let target_path = preset_file.map(|p| p.as_path()).unwrap_or(default_path);
 
-    // 1. Try loading from explicit or local custom presets file
     if target_path.exists() {
         if let Ok(config) = PresetsConfig::load_from_file(target_path) {
             if let Some(preset) = config.get_preset(channel_or_preset) {
@@ -45,7 +48,6 @@ fn resolve_preset_or_channel(
         }
     }
 
-    // 2. Fallback to built-in presets compiled into the binary
     if let Ok(builtin_config) = PresetsConfig::load_embedded_defaults() {
         if let Some(preset) = builtin_config.get_preset(channel_or_preset) {
             println!(
@@ -59,6 +61,66 @@ fn resolve_preset_or_channel(
     }
 
     (channel_or_preset.to_string(), None)
+}
+
+fn load_sigma_engine(path: &Path) -> Result<SigmaEngine> {
+    let mut engine = SigmaEngine::new();
+
+    if path.is_dir() {
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let entry_path = entry.path();
+            if entry_path.extension().and_then(|s| s.to_str()) == Some("yaml")
+                || entry_path.extension().and_then(|s| s.to_str()) == Some("yml")
+            {
+                if let Ok(rule) = SigmaEngine::load_rule_file(&entry_path) {
+                    engine.add_rule(rule);
+                }
+            }
+        }
+    } else {
+        let rule = SigmaEngine::load_rule_file(path)?;
+        engine.add_rule(rule);
+    }
+
+    Ok(engine)
+}
+
+fn handle_sigma_matches(
+    matches: &[&SigmaRule],
+    record: &EventRecord,
+    notify: bool,
+    hook: Option<&str>,
+) {
+    for rule in matches {
+        println!(
+            "{} [{}] Sigma Match: '{}' (ID: {})",
+            "🚨".red().bold(),
+            rule.level.as_deref().unwrap_or("HIGH").red(),
+            rule.title.yellow().bold(),
+            record.event_id
+        );
+
+        if notify {
+            let _ = Notification::new()
+                .summary(&format!("Sigma Rule Triggered: {}", rule.title))
+                .body(&format!(
+                    "Event ID: {}\nProvider: {}\nChannel: {}",
+                    record.event_id, record.provider, record.channel
+                ))
+                .icon("dialog-warning")
+                .show();
+        }
+
+        if let Some(hook_cmd) = hook {
+            let _ = Command::new(hook_cmd)
+                .env("SIGMA_RULE_TITLE", &rule.title)
+                .env("SIGMA_EVENT_ID", record.event_id.to_string())
+                .env("SIGMA_PROVIDER", &record.provider)
+                .env("SIGMA_CHANNEL", &record.channel)
+                .spawn();
+        }
+    }
 }
 
 fn run_static_query(
@@ -134,7 +196,22 @@ fn run_tail_stream(
     channel: &str,
     format: OutputFormat,
     output_path: Option<&PathBuf>,
+    sigma_rules: Option<&PathBuf>,
+    hook: Option<&str>,
+    notify: bool,
 ) -> Result<()> {
+    let sigma_engine = if let Some(rules_path) = sigma_rules {
+        let engine = load_sigma_engine(rules_path)?;
+        println!(
+            "{} Loaded Sigma rule engine from {}",
+            "🛡".cyan().bold(),
+            rules_path.display().to_string().bold()
+        );
+        Some(engine)
+    } else {
+        None
+    };
+
     if output_path.is_none() && format == OutputFormat::Text {
         println!(
             "{} Streaming events from channel '{}'. Press {} to stop.\n",
@@ -163,6 +240,12 @@ fn run_tail_stream(
             while running.load(Ordering::SeqCst) {
                 if let Ok(xml) = receiver.recv_timeout(std::time::Duration::from_millis(200)) {
                     if let Ok(record) = EventRecord::from_xml(&xml) {
+                        if let Some(engine) = &sigma_engine {
+                            let matches = engine.matches(&record);
+                            if !matches.is_empty() {
+                                handle_sigma_matches(&matches, &record, notify, hook);
+                            }
+                        }
                         record.write_csv_row(&mut wtr)?;
                     }
                 }
@@ -176,6 +259,12 @@ fn run_tail_stream(
             while running.load(Ordering::SeqCst) {
                 if let Ok(xml) = receiver.recv_timeout(std::time::Duration::from_millis(200)) {
                     if let Ok(record) = EventRecord::from_xml(&xml) {
+                        if let Some(engine) = &sigma_engine {
+                            let matches = engine.matches(&record);
+                            if !matches.is_empty() {
+                                handle_sigma_matches(&matches, &record, notify, hook);
+                            }
+                        }
                         if !first {
                             writeln!(writer, ",")?;
                         }
@@ -193,6 +282,14 @@ fn run_tail_stream(
             let mut writer = writer;
             while running.load(Ordering::SeqCst) {
                 if let Ok(xml) = receiver.recv_timeout(std::time::Duration::from_millis(200)) {
+                    if let Some(engine) = &sigma_engine {
+                        if let Ok(record) = EventRecord::from_xml(&xml) {
+                            let matches = engine.matches(&record);
+                            if !matches.is_empty() {
+                                handle_sigma_matches(&matches, &record, notify, hook);
+                            }
+                        }
+                    }
                     writeln!(writer, "{}\n---", xml)?;
                     writer.flush()?;
                 }
@@ -202,6 +299,12 @@ fn run_tail_stream(
             while running.load(Ordering::SeqCst) {
                 if let Ok(xml) = receiver.recv_timeout(std::time::Duration::from_millis(200)) {
                     if let Ok(record) = EventRecord::from_xml(&xml) {
+                        if let Some(engine) = &sigma_engine {
+                            let matches = engine.matches(&record);
+                            if !matches.is_empty() {
+                                handle_sigma_matches(&matches, &record, notify, hook);
+                            }
+                        }
                         record.print_formatted();
                     }
                 }
@@ -232,11 +335,23 @@ fn main() -> Result<()> {
         }
         Some(
             cmd @ Commands::Tail {
-                channel, output, ..
+                channel,
+                output,
+                sigma_rules,
+                hook,
+                notify,
+                ..
             },
         ) => {
             let (target_channel, _) = resolve_preset_or_channel(channel, cli.config.as_ref());
-            run_tail_stream(&target_channel, cmd.resolved_tail_format(), output.as_ref())?;
+            run_tail_stream(
+                &target_channel,
+                cmd.resolved_tail_format(),
+                output.as_ref(),
+                sigma_rules.as_ref(),
+                hook.as_deref(),
+                *notify,
+            )?;
         }
         None => {
             let (target_channel, preset_limit) =

@@ -1,5 +1,11 @@
 ## [unreleased]
 
+### 🚀 Features
+
+- Able to parse YAML Sigma detection rules into native XPath and vice-versa
+([`8ee85f4…`](https://github.com/Qazaroth/feckmania/commit/8ee85f4b6faafb49b187eb73c8fb85d14f435aae))
+
+
 ### 📚 Documentation
 
 - Updated ROADMAP for a better phase 5 development, previous ones were out of scope

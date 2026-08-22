@@ -1,0 +1,9 @@
+title: Application Crash Detected
+logsource:
+    product: windows
+    service: application
+detection:
+    selection:
+        EventID: 1000
+    condition: selection
+level: high
