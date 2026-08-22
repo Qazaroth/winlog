@@ -85,7 +85,7 @@ ightarrow$ "Access Denied").
 ## 🚩 Phase 5: Detection, Analytics & Output Integrations
 
 - [ ] **Real-Time Sigma Rule Detection Engine**
-  - [ ] Parse standard YAML Sigma detection rules into native XPath and memory-matched conditions.
+  - [x] Parse standard YAML Sigma detection rules into native XPath and memory-matched conditions.
   - [ ] Trigger live desktop notifications (`notify-rust`) or execute hook scripts upon rule matches during `tail` operations.
 
 - [ ] **Log Anomaly & Threat Detection (Heuristics)**
@@ -99,6 +99,7 @@ ightarrow$ "Access Denied").
 - [ ] **TUI Forensic Workbench Enhancements**
   - [ ] **Timeline View:** Visual representation of event density over time using ASCII bar charts.
   - [ ] **Diff Mode:** Compare two `.evtx` files or snapshot ranges to surface newly generated events during incident response.
+
 ---
 
 ## 🤝 How to Pick Up a Task

@@ -1,5 +1,11 @@
 ## [unreleased]
 
+### 📚 Documentation
+
+- Updated ROADMAP for a better phase 5 development, previous ones were out of scope
+([`8ade77e…`](https://github.com/Qazaroth/feckmania/commit/8ade77e60d74fb2644b4bf5534d3cdfaff8f3fb8))
+
+
 ### ⚙️ Continuous Integration
 
 - Updated release.yml to hopefully generate executables
